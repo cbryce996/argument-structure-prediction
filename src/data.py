@@ -2,12 +2,14 @@ import json
 import os
 import torch
 import networkx as nx
+from transformers import BertTokenizer, BertModel
+from torch_geometric.transforms import Compose
 from torch_geometric.data import InMemoryDataset, Data
 from torch_geometric.transforms import BaseTransform
 
 class AIFData(Data):
-    def __init__(self, x=None, edge_index=None, y=None, graph=None, name=None, **kwargs):
-        super(AIFData, self).__init__(x=x, edge_index=edge_index, y=y, **kwargs)
+    def __init__(self, x=None, edge_index=None, y=None, graph=None, name=None):
+        super(AIFData, self).__init__(x=x, edge_index=edge_index, y=y)
         self.graph = graph
         self.name = name
 
@@ -27,33 +29,14 @@ class AIFData(Data):
         except Exception as e:
             print(f"An error occurred while processing data: {str(e)}")
             self.graph = graph
-    
-    def from_nginx_graph(self):
-        # Extract node features
-            x = torch.tensor([self.graph.nodes[node]["embedding"] for node in self.graph.nodes], dtype=torch.float)
-
-            # Create a mapping from edge labels (strings) to unique integer indices
-            edge_label_to_index = {label: idx for idx, label in enumerate(set(self.graph.edges))}
-
-            print()
-
-            # Extract edge indices
-            edge_index_list = [(edge_label_to_index[edge[0]], edge_label_to_index[edge[1]]) for edge in self.graph.edges]
-            edge_index = torch.tensor(edge_index_list, dtype=torch.long).t().contiguous()
-
-            # Extract edge labels (if available)
-            if "labels" in self.graph:
-                y = torch.tensor(self.graph["labels"], dtype=torch.long)
-                self.y = y
-
-            # Update PyTorch Geometric Data attributes
-            self.x = x
-            self.edge_index = edge_index
 
 class AIFDataset(InMemoryDataset):
     def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
         super(AIFDataset, self).__init__(root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[0])
+
+        self.encoder = EdgeLabelEncoder()
+        self.decoder = EdgeLabelDecoder(label_encoder=self.encoder)
 
     @property
     def raw_file_names(self):
@@ -62,6 +45,12 @@ class AIFDataset(InMemoryDataset):
     @property
     def processed_file_names(self):
         return ['processed_data.pt']
+    
+    def access_encode(self):
+        return self.encoder
+    
+    def access_decoder(self):
+        return self.decoder
     
     def download(self):
         pass
@@ -101,7 +90,21 @@ class AIFDataset(InMemoryDataset):
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
-    
+
+class GraphToPyGData(BaseTransform):
+    def __init__(self):
+        super(GraphToPyGData, self).__init__()
+
+    def __call__(self, data):
+        bert_embeddings = {node: data.graph.nodes[node]['embedding'] for node in data.graph.nodes}
+
+        node_features = [bert_embeddings[node] for node in data.graph.nodes]
+
+        data.x = torch.tensor(node_features)
+
+        return data
+
+#! Does not appply changes to abstract graph    
 class CreateBertEmbeddings(BaseTransform):
     def __init__(self, tokenizer, model, max_seq_length=128):
         self.tokenizer = tokenizer
@@ -112,7 +115,6 @@ class CreateBertEmbeddings(BaseTransform):
         graph = data.graph
 
         texts = [graph.nodes[node]["text"] for node in graph.nodes()]
-
 
         tokenized_inputs = self.tokenizer(
             texts,
@@ -134,13 +136,14 @@ class CreateBertEmbeddings(BaseTransform):
 
         print(f'Created BERT embeddings for {data.name}')
 
-        data.from_nginx_graph()
+        data.graph = graph
 
         return data
 
     def __repr__(self):
         return f"CreateBertEmbeddings()"
-    
+
+#! Does not appply changes to abstract graph     
 class RemoveLinkNodes(BaseTransform):
     def __init__(self, link_node_types=None):
         self.link_node_types = link_node_types or ["YA", "RA", "MA", "TA", "CA"]
@@ -151,7 +154,6 @@ class RemoveLinkNodes(BaseTransform):
         try:
             link_nodes = [node for node, attrs in graph.nodes(data=True) if attrs.get("type") in self.link_node_types]
 
-            # Remove link nodes
             for node in link_nodes:
                 incoming_edges = list(graph.in_edges(node))
                 outgoing_edges = list(graph.out_edges(node))
@@ -169,48 +171,16 @@ class RemoveLinkNodes(BaseTransform):
 
         except Exception as e:
             print(f"An error occurred while processing data: {str(e)}")
+
+        print(f'Removed link nodes from {data.name}')
         
         data.graph = graph
-        print(f'Removed link nodes from {data.name}')
-
-        data.from_nginx_graph()
 
         return data
     
     def __repr__(self):
         return f"RemoveLinkNodes(link_node_types={self.link_node_types})"
 
-class BinaryEdgeLabelEncoder(BaseTransform):
-    def __init__(self):
-        self.label_to_index = {'No-Relation': 0, 'Relation': 1}
-        self.index_to_label = {0: 'No-Relation', 1: 'Relation'}
-        self.num_labels = 2
-
-    def __call__(self, data):
-        graph = data.graph
-
-        # Define the mapping for node types to edge labels
-        type_to_label_mapping = {0: 'No-Relation', 1: 'Relation'}
-
-        # Ensure that the graph has node attributes 'type' for each node
-        for node in graph.nodes(data=True):
-            if 'type' not in node[1]:
-                print("Node is missing 'type' attribute.")
-                return data
-
-        # Iterate over all edges and set their labels based on the 'type' attribute of the source node
-        for edge in graph.edges():
-            source_type = graph.nodes[edge[0]]['type']
-            label = type_to_label_mapping.get(source_type, type_to_label_mapping[0])  # Default to 'No-Relation'
-            graph.edges[edge[0], edge[1]]['label'] = label
-
-        data.from_nginx_graph()
-
-        return data
-
-    def __repr__(self):
-        return f"BinaryEdgeLabelEncoder()"
-    
 class EdgeLabelEncoder(BaseTransform):
     def __init__(self):
         self.label_to_index = {}
@@ -220,22 +190,18 @@ class EdgeLabelEncoder(BaseTransform):
     def __call__(self, data):
         graph = data.graph
 
-        # Create a set of unique edge labels
-        unique_labels = set([graph.edges[src, dst].get("label") for src, dst in graph.edges()])
+        unique_labels = set([graph.edges[src, dst].get("type") for src, dst in graph.edges()])
         
-        # Assign numerical encodings to edge labels
         for label in unique_labels:
             if label not in self.label_to_index:
                 self.label_to_index[label] = self.num_labels
                 self.index_to_label[self.num_labels] = label
                 self.num_labels += 1
 
-        # Encode edge labels in the graph
-        for source, target in graph.edges():
-            label = graph.edges[source, target].get("label")
-            index = self.label_to_index[label]
-            graph.edges[source, target]["label_encoded"] = index
-            print(graph.edges[source, target]["label_encoded"])
+        label_indices = [self.label_to_index[graph.edges[src, dst].get("type")] for src, dst in graph.edges()]
+        label_indices = torch.tensor(label_indices, dtype=torch.long)
+
+        data.edge_label_indices = label_indices
 
         return data
     
@@ -247,12 +213,10 @@ class EdgeLabelDecoder(BaseTransform):
         self.label_encoder = label_encoder
 
     def __call__(self, data):
-        graph = data.graph
+        # Decode edge label indices in the PyTorch Geometric Data object
+        decoded_labels = [self.label_encoder.index_to_label[idx.item()] for idx in data.edge_label_indices]
 
-        # Decode edge label encodings in the graph
-        for source, target in graph.edges():
-            index = graph.edges[source, target].get("label_encoded")
-            label = self.label_encoder.index_to_label.get(index)
-            graph.edges[source, target]["label_decoded"] = label
+        # Store the decoded edge labels in the PyTorch Geometric Data object
+        data.edge_labels_decoded = decoded_labels
 
         return data
