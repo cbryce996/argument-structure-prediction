@@ -8,7 +8,7 @@ from torch_geometric.data import InMemoryDataset, Data
 from torch_geometric.transforms import BaseTransform
 
 class AIFData(Data):
-    def __init__(self, x=None, edge_index=None, y=None, graph=None, name=None):
+    def __init__(self, x=None, edge_index=None, y=None, attention_masks=None, graph=None, name=None):
         super(AIFData, self).__init__(x=x, edge_index=edge_index, y=y)
         self.graph = graph
         self.name = name
@@ -96,15 +96,28 @@ class GraphToPyGData(BaseTransform):
         super(GraphToPyGData, self).__init__()
 
     def __call__(self, data):
-        bert_embeddings = {node: data.graph.nodes[node]['embedding'] for node in data.graph.nodes}
+        # Get graph data
+        nodes = {node: data.graph.nodes[node] for node in data.graph.nodes}
+        edges = {edge: data.graph.edges[edge] for edge in data.graph.edges}
 
-        node_features = [bert_embeddings[node] for node in data.graph.nodes]
+        # Create node mapping
+        node_mapping = {node: idx for idx, node in enumerate(nodes)}
 
-        data.x = torch.tensor(node_features)
+        # Convert bert embeddings
+        node_embeddings = [nodes[node]['embedding'] for node in data.graph.nodes]
+        data.x = torch.tensor(node_embeddings)
+
+        # Convert attention masks
+        node_masks = [nodes[node]['attention_mask'] for node in data.graph.nodes]
+        data.attention_masks = torch.tensor(node_masks)
+
+        # Convert edge index
+        edge_index = [(node_mapping[edge[0]], node_mapping[edge[1]]) for edge in edges]
+        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+        data.edge_index = edge_index
 
         return data
 
-#! Does not appply changes to abstract graph    
 class CreateBertEmbeddings(BaseTransform):
     def __init__(self, tokenizer, model, max_seq_length=128):
         self.tokenizer = tokenizer
@@ -143,7 +156,6 @@ class CreateBertEmbeddings(BaseTransform):
     def __repr__(self):
         return f"CreateBertEmbeddings()"
 
-#! Does not appply changes to abstract graph     
 class RemoveLinkNodes(BaseTransform):
     def __init__(self, link_node_types=None):
         self.link_node_types = link_node_types or ["YA", "RA", "MA", "TA", "CA"]
@@ -198,10 +210,10 @@ class EdgeLabelEncoder(BaseTransform):
                 self.index_to_label[self.num_labels] = label
                 self.num_labels += 1
 
-        label_indices = [self.label_to_index[graph.edges[src, dst].get("type")] for src, dst in graph.edges()]
-        label_indices = torch.tensor(label_indices, dtype=torch.long)
+        label_index = [self.label_to_index[graph.edges[src, dst].get("type")] for src, dst in graph.edges()]
+        label_index = torch.tensor(label_index, dtype=torch.long)
 
-        data.edge_label_indices = label_indices
+        data.edge_labels = label_index
 
         return data
     
@@ -214,7 +226,7 @@ class EdgeLabelDecoder(BaseTransform):
 
     def __call__(self, data):
         # Decode edge label indices in the PyTorch Geometric Data object
-        decoded_labels = [self.label_encoder.index_to_label[idx.item()] for idx in data.edge_label_indices]
+        decoded_labels = [self.label_encoder.index_to_label[idx.item()] for idx in data.edge_labels]
 
         # Store the decoded edge labels in the PyTorch Geometric Data object
         data.edge_labels_decoded = decoded_labels
