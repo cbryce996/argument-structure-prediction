@@ -4,12 +4,12 @@ import torch
 import networkx as nx
 from transformers import BertTokenizer, BertModel
 from torch_geometric.transforms import Compose
-from torch_geometric.data import InMemoryDataset, Data
+from torch_geometric.data import InMemoryDataset, Data, Batch
 from torch_geometric.transforms import BaseTransform
 
 class AIFData(Data):
-    def __init__(self, x=None, edge_index=None, y=None, attention_masks=None, graph=None, name=None):
-        super(AIFData, self).__init__(x=x, edge_index=edge_index, y=y)
+    def __init__(self, x=None, y=None, attention_masks=None, graph=None, name=None):
+        super(AIFData, self).__init__(x=x, y=y)
         self.graph = graph
         self.name = name
 
@@ -33,8 +33,6 @@ class AIFData(Data):
 class AIFDataset(InMemoryDataset):
     def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
         super(AIFDataset, self).__init__(root, transform, pre_transform, pre_filter)
-        self.data, self.slices = torch.load(self.processed_paths[0])
-
         self.encoder = EdgeLabelEncoder()
         self.decoder = EdgeLabelDecoder(label_encoder=self.encoder)
 
@@ -44,7 +42,7 @@ class AIFDataset(InMemoryDataset):
     
     @property
     def processed_file_names(self):
-        return ['processed_data.pt']
+        return [f'data_{i}.pt' for i in range(len(self.raw_file_names))]
     
     def access_encode(self):
         return self.encoder
@@ -80,6 +78,9 @@ class AIFDataset(InMemoryDataset):
                 except Exception as e:
                     print(f"Error processing file {json_file_path}: {str(e)}. Skipping this file.")
 
+        print("Length of data_list after processing:", len(data_list))
+        print("Contents of data_list after processing:", data_list)
+
         # Check and apply the pre filter
         if self.pre_filter is not None:
             data_list = [data for data in data_list if self.pre_filter(data)]
@@ -88,8 +89,19 @@ class AIFDataset(InMemoryDataset):
         if self.pre_transform is not None:
             data_list = [self.pre_transform(data) for data in data_list]
 
-        data, slices = self.collate(data_list)
-        torch.save((data, slices), self.processed_paths[0])
+        # Save the list of data objects
+        #torch.save(data_list, self.processed_paths[0])
+
+        # Save each data object individually
+        for i, data in enumerate(data_list):
+            torch.save(data, os.path.join(self.processed_dir, f'data_{i}.pt'))
+    
+    def len(self):
+        return len(self.processed_file_names)
+
+    def get(self, idx):
+        data = torch.load(os.path.join(self.processed_dir, f'data_{idx}.pt'))
+        return data
 
 class GraphToPyGData(BaseTransform):
     def __init__(self):
@@ -105,7 +117,9 @@ class GraphToPyGData(BaseTransform):
 
         # Convert bert embeddings
         node_embeddings = [nodes[node]['embedding'] for node in data.graph.nodes]
-        data.x = torch.tensor(node_embeddings)
+        node_embeddings_tensor = torch.tensor([embeddings for embeddings in node_embeddings])
+        flattened_embeddings = node_embeddings_tensor.view(node_embeddings_tensor.size(0), -1)
+        data.x = flattened_embeddings
 
         # Convert attention masks
         node_masks = [nodes[node]['attention_mask'] for node in data.graph.nodes]
@@ -115,6 +129,11 @@ class GraphToPyGData(BaseTransform):
         edge_index = [(node_mapping[edge[0]], node_mapping[edge[1]]) for edge in edges]
         edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
         data.edge_index = edge_index
+
+        # Convert edge labels
+        data.y = data.edge_labels
+
+        print(f'Converted graph data to PyG data for {data.name}')
 
         return data
 
@@ -214,6 +233,8 @@ class EdgeLabelEncoder(BaseTransform):
         label_index = torch.tensor(label_index, dtype=torch.long)
 
         data.edge_labels = label_index
+
+        print(f'Encoded edge labels for {data.name}')
 
         return data
     

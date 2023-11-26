@@ -1,40 +1,33 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import MessagePassing, global_add_pool
-from torch_geometric.utils import add_self_loops, degree
+from torch_geometric.nn import GCNConv
 
-class GNNLayer(MessagePassing):
-    def __init__(self, in_channels, out_channels):
-        super(GNNLayer, self).__init__(aggr='add')
-        self.lin = nn.Linear(in_channels, out_channels)
+class GCNClassifier(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(GCNClassifier, self).__init__()
 
-    def forward(self, x, edge_index):
-        edge_index, _ = add_self_loops(edge_index, num_nodes=x.size(0))
-        return self.propagate(edge_index, x=x)
+        self.conv1 = GCNConv(input_dim, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, hidden_dim)
+        self.fc = nn.Linear(hidden_dim * 2, output_dim)  # Concatenate node embeddings for edge representation
 
-    def message(self, x_j):
-        return x_j
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
 
-    def update(self, aggr_out):
-        return F.relu(self.lin(aggr_out))
-
-class GNNClassifier(nn.Module):
-    def __init__(self, in_channels, hidden_channels, num_classes):
-        super(GNNClassifier, self).__init__()
-        self.embedding = nn.Linear(768, in_channels)  # Adjust in_channels based on BERT embedding size
-        self.layers = nn.ModuleList([
-            GNNLayer(in_channels, hidden_channels),
-            GNNLayer(hidden_channels, hidden_channels),
-            GNNLayer(hidden_channels, hidden_channels)
-        ])
-        self.lin = nn.Linear(hidden_channels, num_classes)
-
-    def forward(self, x, edge_index):
-        x = self.embedding(x)  # Assuming x is the BERT node embeddings
-        for layer in self.layers:
-            x = layer(x, edge_index)
-        x = global_add_pool(x, batch=None)  # Global pooling over nodes
+        # Apply the first GCN layer
+        x = self.conv1(x, edge_index)
         x = F.relu(x)
-        x = self.lin(x)
-        return F.log_softmax(x, dim=1)
+        x = F.dropout(x, training=self.training)
+
+        # Apply the second GCN layer
+        x = self.conv2(x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, training=self.training)
+
+        # Edge representation by concatenating or summing node embeddings
+        edge_x = torch.cat([x[edge_index[0]], x[edge_index[1]]], dim=1)  # Concatenate
+
+        # Fully connected layer for edge classification
+        edge_scores = self.fc(edge_x)
+
+        return F.log_softmax(edge_scores, dim=1)
