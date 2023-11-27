@@ -2,6 +2,7 @@ import json
 import os
 import torch
 import networkx as nx
+from sklearn.preprocessing import StandardScaler
 from transformers import BertTokenizer, BertModel
 from torch_geometric.transforms import Compose
 from torch_geometric.data import InMemoryDataset, Data, Batch
@@ -31,10 +32,10 @@ class AIFData(Data):
             self.graph = graph
 
 class AIFDataset(InMemoryDataset):
-    def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
+    def __init__(self, root, transform=None, pre_transform=None, pre_filter=None, encoder=None, decoder=None):
         super(AIFDataset, self).__init__(root, transform, pre_transform, pre_filter)
-        self.encoder = EdgeLabelEncoder()
-        self.decoder = EdgeLabelDecoder(label_encoder=self.encoder)
+        self.encoder = encoder if encoder is not None else EdgeLabelEncoder()
+        self.decoder = decoder if decoder is not None else EdgeLabelDecoder(label_encoder=self.encoder)
 
     @property
     def raw_file_names(self):
@@ -78,9 +79,6 @@ class AIFDataset(InMemoryDataset):
                 except Exception as e:
                     print(f"Error processing file {json_file_path}: {str(e)}. Skipping this file.")
 
-        print("Length of data_list after processing:", len(data_list))
-        print("Contents of data_list after processing:", data_list)
-
         # Check and apply the pre filter
         if self.pre_filter is not None:
             data_list = [data for data in data_list if self.pre_filter(data)]
@@ -121,10 +119,6 @@ class GraphToPyGData(BaseTransform):
         flattened_embeddings = node_embeddings_tensor.view(node_embeddings_tensor.size(0), -1)
         data.x = flattened_embeddings
 
-        # Convert attention masks
-        node_masks = [nodes[node]['attention_mask'] for node in data.graph.nodes]
-        data.attention_masks = torch.tensor(node_masks)
-
         # Convert edge index
         edge_index = [(node_mapping[edge[0]], node_mapping[edge[1]]) for edge in edges]
         edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
@@ -162,9 +156,10 @@ class CreateBertEmbeddings(BaseTransform):
             outputs = self.model(**tokenized_inputs)
             embeddings = outputs.last_hidden_state
 
+        masked_embeddings = embeddings * attention_mask.unsqueeze(-1)
+
         for i, node in enumerate(graph.nodes()):
-            graph.nodes[node]["embedding"] = embeddings[i].tolist()
-            graph.nodes[node]["attention_mask"] = attention_mask[i].tolist()
+            graph.nodes[node]["embedding"] = masked_embeddings[i].tolist()
 
         print(f'Created BERT embeddings for {data.name}')
 
