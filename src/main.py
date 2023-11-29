@@ -25,10 +25,10 @@ if __name__ == "__main__":
 
     qt30_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/QT30", pre_transform=transforms, pre_filter=filters)
 
-    us2016_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/US2016", pre_transform=transforms, pre_filter=filters)
+    #us2016_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/US2016", pre_transform=transforms, pre_filter=filters)
 
     # Combine the datasets
-    combined_dataset = ConcatDataset([qt30_dataset, us2016_dataset])
+    combined_dataset = ConcatDataset([qt30_dataset])
 
     train_size = int(0.8 * len(combined_dataset))
     test_size = int(0.1 * len(combined_dataset))
