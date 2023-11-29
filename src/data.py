@@ -1,12 +1,21 @@
 import json
 import os
 import torch
+import threading
 import networkx as nx
+from concurrent.futures import ThreadPoolExecutor
 from sklearn.preprocessing import StandardScaler
 from transformers import BertTokenizer, BertModel
 from torch_geometric.transforms import Compose
 from torch_geometric.data import InMemoryDataset, Data, Batch
 from torch_geometric.transforms import BaseTransform
+
+print_lock = threading.Lock()
+save_lock = threading.Lock()
+
+def thread_safe_print(message):
+    with print_lock:
+        print(message)
 
 class AIFData(Data):
     def __init__(self, x=None, y=None, attention_masks=None, graph=None, name=None):
@@ -25,10 +34,10 @@ class AIFData(Data):
                 graph.add_edge(edge["fromID"], edge["toID"], type=[])
     
             self.graph = graph
-            print(f"Constructed a {self.graph}")
+            thread_safe_print(f"Constructed a {self.graph}")
         
         except Exception as e:
-            print(f"An error occurred while processing data: {str(e)}")
+            thread_safe_print(f"An error occurred while processing data: {str(e)}")
             self.graph = graph
 
 class AIFDataset(InMemoryDataset):
@@ -36,69 +45,82 @@ class AIFDataset(InMemoryDataset):
         super(AIFDataset, self).__init__(root, transform, pre_transform, pre_filter)
         self.encoder = encoder if encoder is not None else EdgeLabelEncoder()
         self.decoder = decoder if decoder is not None else EdgeLabelDecoder(label_encoder=self.encoder)
+        self.processed_data = None
 
     @property
     def raw_file_names(self):
         return os.listdir(self.raw_dir)
-    
+
     @property
     def processed_file_names(self):
-        return [f'data_{i}.pt' for i in range(len(self.raw_file_names))]
-    
+        return [f'{processed_name}.pt' for processed_name in self.processed_names]
+
+    @property
+    def processed_names(self):
+        processed_files = os.listdir(self.processed_dir)
+        return [filename.replace(".pt", "") for filename in processed_files]
+
     def access_encode(self):
         return self.encoder
-    
+
     def access_decoder(self):
         return self.decoder
-    
+
     def download(self):
         pass
 
     def process(self):
-        data_list = []
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for idx, raw_file in enumerate(self.raw_file_names):
+                if raw_file.endswith('.json'):
+                    json_file_path = os.path.join(self.raw_dir, raw_file)
+                    thread_safe_print(f"Processing {raw_file}")
+                    future = executor.submit(self._process_single_file, json_file_path)
+                    futures.append(future)     
 
-        for raw_file in self.raw_file_names:
-            if raw_file.endswith('.json'):
-                json_file_path = os.path.join(self.raw_dir, raw_file)
-                print (f"Processing {raw_file}")
-                
-                try:
-                    with open(json_file_path, "r") as json_file:
-                        graph_data = json.load(json_file)
+    def _process_single_file(self, json_file_path):
+        processed_name = os.path.splitext(os.path.basename(json_file_path))[0]
 
-                    if "nodes" not in graph_data or "edges" not in graph_data:
-                        raise ValueError("JSON data must contain both 'nodes' and 'edges' keys.")
+        # Check if the processed file already exists
+        processed_file_path = os.path.join(self.processed_dir, f'data_{processed_name}.pt')
+        if os.path.exists(processed_file_path):
+            thread_safe_print(f"Processed file {processed_name} already exists. Skipping...")
+            return torch.load(processed_file_path)
 
-                    aif_data = AIFData(name=raw_file)
-                    aif_data.process_json(graph_data)
+        try:
+            with open(json_file_path, "r") as json_file:
+                graph_data = json.load(json_file)
 
-                    data_list.append(aif_data)
+            if "nodes" not in graph_data or "edges" not in graph_data:
+                raise ValueError("JSON data must contain both 'nodes' and 'edges' keys.")
 
-                except KeyError:
-                    print(f"KeyError in file {json_file_path}. Skipping this file.")
-                except Exception as e:
-                    print(f"Error processing file {json_file_path}: {str(e)}. Skipping this file.")
+            aif_data = AIFData(name=processed_name)
+            aif_data.process_json(graph_data)
 
-        # Check and apply the pre filter
-        if self.pre_filter is not None:
-            data_list = [data for data in data_list if self.pre_filter(data)]
-        
-        # Check and apply the pre transforms
-        if self.pre_transform is not None:
-            data_list = [self.pre_transform(data) for data in data_list]
+            # Apply pre-filter
+            if self.pre_filter is not None and not self.pre_filter(aif_data):
+                return None
 
-        # Save the list of data objects
-        #torch.save(data_list, self.processed_paths[0])
+            # Apply pre-transform
+            if self.pre_transform is not None:
+                aif_data = self.pre_transform(aif_data)
 
-        # Save each data object individually
-        for i, data in enumerate(data_list):
-            torch.save(data, os.path.join(self.processed_dir, f'data_{i}.pt'))
-    
+            with save_lock:
+                thread_safe_print(f"Saving {aif_data.name}")
+                torch.save(aif_data, os.path.join(self.processed_dir, f'data_{aif_data.name}.pt'))
+
+        except KeyError:
+            thread_safe_print(f"KeyError in file {processed_name}. Skipping this file.")
+
+        except Exception as e:
+            thread_safe_print(f"Error processing file {processed_name}: {str(e)}. Skipping this file.")
+
     def len(self):
         return len(self.processed_file_names)
 
     def get(self, idx):
-        data = torch.load(os.path.join(self.processed_dir, f'data_{idx}.pt'))
+        data = torch.load(os.path.join(self.processed_dir, f'{self.processed_file_names[idx]}'))
         return data
 
 class GraphToPyGData(BaseTransform):
@@ -127,7 +149,7 @@ class GraphToPyGData(BaseTransform):
         # Convert edge labels
         data.y = data.edge_labels
 
-        print(f'Converted graph data to PyG data for {data.name}')
+        thread_safe_print(f'Converted graph data to PyG data for {data.name}')
 
         return data
 
@@ -161,7 +183,7 @@ class CreateBertEmbeddings(BaseTransform):
         for i, node in enumerate(graph.nodes()):
             graph.nodes[node]["embedding"] = masked_embeddings[i].tolist()
 
-        print(f'Created BERT embeddings for {data.name}')
+        thread_safe_print(f'Created BERT embeddings for {data.name}')
 
         data.graph = graph
 
@@ -170,7 +192,7 @@ class CreateBertEmbeddings(BaseTransform):
     def __repr__(self):
         return f"CreateBertEmbeddings()"
 
-class RemoveLinkNodes(BaseTransform):
+class ProcessGraphData(BaseTransform):
     def __init__(self, link_node_types=None):
         self.link_node_types = link_node_types or ["YA", "RA", "MA", "TA", "CA"]
 
@@ -195,10 +217,15 @@ class RemoveLinkNodes(BaseTransform):
 
                 graph.remove_node(node)
 
-        except Exception as e:
-            print(f"An error occurred while processing data: {str(e)}")
+            locution_nodes = [node for node, attrs in graph.nodes(data=True) if attrs.get("type") == "L"]
+            
+            for node in locution_nodes:
+                graph.remove_node(node)
 
-        print(f'Removed link nodes from {data.name}')
+        except Exception as e:
+            thread_safe_print(f"An error occurred while processing the graph data: {str(e)}")
+
+        thread_safe_print(f'Successfully processed graph data from {data.name}')
         
         data.graph = graph
 
@@ -229,7 +256,7 @@ class EdgeLabelEncoder(BaseTransform):
 
         data.edge_labels = label_index
 
-        print(f'Encoded edge labels for {data.name}')
+        thread_safe_print(f'Encoded edge labels for {data.name}')
 
         return data
     
