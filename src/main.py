@@ -5,7 +5,7 @@ from transformers import BertTokenizer, BertModel
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import Compose
 from torch.utils.data import random_split, ConcatDataset
-from data import AIFDataset, ProcessGraphData, CreateBertEmbeddings, EdgeLabelEncoder, GraphToPyGData, EdgeLabelDecoder
+from data import AIFDataset, RemoveNodeTypes, RemoveLinkNodeTypes, CreateBertEmbeddings, EdgeLabelEncoder, GraphToPyGData, EdgeLabelDecoder, MinNodesAndEdges
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from gnn import GCNClassifier
 import networkx as nx
@@ -20,11 +20,12 @@ if __name__ == "__main__":
     encoder = EdgeLabelEncoder()
     decoder = EdgeLabelDecoder(label_encoder=encoder)
 
-    transforms = Compose([ProcessGraphData(), EdgeLabelEncoder(), CreateBertEmbeddings(tokenizer, model), GraphToPyGData()])
+    transforms = Compose([RemoveNodeTypes(types_to_remove=["L"]), RemoveLinkNodeTypes(types_to_remove=["YA", "RA", "MA", "TA", "CA"]), EdgeLabelEncoder(), CreateBertEmbeddings(tokenizer, model, 128), GraphToPyGData()])
+    filters = Compose([MinNodesAndEdges()])
 
-    qt30_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/QT30", pre_transform=transforms)
+    qt30_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/QT30", pre_transform=transforms, pre_filter=filters)
 
-    us2016_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/US2016", pre_transform=transforms)
+    us2016_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/US2016", pre_transform=transforms, pre_filter=filters)
 
     # Combine the datasets
     combined_dataset = ConcatDataset([qt30_dataset, us2016_dataset])
@@ -37,9 +38,9 @@ if __name__ == "__main__":
     train_dataset, test_dataset, val_dataset = random_split(combined_dataset, [train_size, test_size, val_size])
 
     # Create DataLoader for each set
-    train_loader = DataLoader(train_dataset, batch_size=6, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=6, shuffle=True)  # No need to shuffle the test set
-    val_loader = DataLoader(val_dataset, batch_size=6, shuffle=False)  # No need to shuffle the validation set
+    train_loader = DataLoader(train_dataset, batch_size=24, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=24, shuffle=True)  # No need to shuffle the test set
+    val_loader = DataLoader(val_dataset, batch_size=24, shuffle=False)  # No need to shuffle the validation set
 
     # Assuming you have a DataLoader named 'train_loader' for training data
     model = GCNClassifier(input_dim=128*768, hidden_dim=256, output_dim=5)
@@ -52,25 +53,19 @@ if __name__ == "__main__":
         total_loss = 0
         total_samples = 0
 
-        try:
-            for data in train_loader:
-                try:
-                    optimizer.zero_grad()
-                    output = model(data)
-                    loss = criterion(output, data.y)
-                    loss.backward()
-                    optimizer.step()
+        for i, data in enumerate(train_loader):
+            if i < 5:  # Print the first 5 batches
+                print(f"Batch {i}: {data}")
 
-                    total_loss += loss.item()
-                    total_samples += len(data.y)
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    break
-        except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    break
+        for data in train_loader:
+            optimizer.zero_grad()
+            output = model(data)
+            loss = criterion(output, data.y)
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+            total_samples += len(data.y)
 
         average_loss = total_loss / len(train_loader.dataset)
         print(f'Epoch {epoch + 1}/{20}, Loss: {average_loss:.4f}')

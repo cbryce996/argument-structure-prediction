@@ -1,131 +1,127 @@
 import json
 import os
-import torch
 import threading
+import torch
 import networkx as nx
-from concurrent.futures import ThreadPoolExecutor
-from sklearn.preprocessing import StandardScaler
+import concurrent.futures as cf
 from transformers import BertTokenizer, BertModel
-from torch_geometric.transforms import Compose
-from torch_geometric.data import InMemoryDataset, Data, Batch
+from threads import thread_safe_print
+from torch_geometric.data import InMemoryDataset, Data
 from torch_geometric.transforms import BaseTransform
 
-print_lock = threading.Lock()
-save_lock = threading.Lock()
-
-def thread_safe_print(message):
-    with print_lock:
-        print(message)
-
 class AIFData(Data):
-    def __init__(self, x=None, y=None, attention_masks=None, graph=None, name=None):
+    def __init__(self, x=None, y=None, graph=None, name=None):
         super(AIFData, self).__init__(x=x, y=y)
         self.graph = graph
         self.name = name
 
-    def process_json(self, data):
-        graph = nx.DiGraph()
-
-        try:
-            for i, node in enumerate(data["nodes"]):
-                graph.add_node(node["nodeID"], type=node["type"], text=node["text"], embedding=[])
-            
-            for edge in data["edges"]:
-                graph.add_edge(edge["fromID"], edge["toID"], type=[])
-    
-            self.graph = graph
-            thread_safe_print(f"Constructed a {self.graph}")
-        
-        except Exception as e:
-            thread_safe_print(f"An error occurred while processing data: {str(e)}")
-            self.graph = graph
-
 class AIFDataset(InMemoryDataset):
-    def __init__(self, root, transform=None, pre_transform=None, pre_filter=None, encoder=None, decoder=None):
+    def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
         super(AIFDataset, self).__init__(root, transform, pre_transform, pre_filter)
-        self.encoder = encoder if encoder is not None else EdgeLabelEncoder()
-        self.decoder = decoder if decoder is not None else EdgeLabelDecoder(label_encoder=self.encoder)
-        self.processed_data = None
+        self.encoder = EdgeLabelEncoder()
+        self.decoder = EdgeLabelDecoder(label_encoder=self.encoder)
+        self.save_lock = threading.Lock()
 
     @property
-    def raw_file_names(self):
+    def raw_dir(self) -> str:
+        return os.path.join(self.root, "raw")
+    
+    @property
+    def raw_file_names(self) -> list[str]:
         return os.listdir(self.raw_dir)
-
+    
     @property
-    def processed_file_names(self):
-        return [f'{processed_name}.pt' for processed_name in self.processed_names]
-
+    def processed_dir(self) -> str:
+        return os.path.join(self.root, "processed")
+    
+    @property
+    def processed_file_names(self) -> list[str]:
+        return os.listdir(self.processed_dir)
+    
     @property
     def processed_names(self):
-        processed_files = os.listdir(self.processed_dir)
-        return [filename.replace(".pt", "") for filename in processed_files]
-
-    def access_encode(self):
-        return self.encoder
-
-    def access_decoder(self):
-        return self.decoder
-
+        return [file.replace(".pt", "") for file in os.listdir(self.processed_dir)]
+    
     def download(self):
         pass
 
-    def process(self):
-        with ThreadPoolExecutor() as executor:
-            futures = []
-            for idx, raw_file in enumerate(self.raw_file_names):
-                if raw_file.endswith('.json'):
-                    json_file_path = os.path.join(self.raw_dir, raw_file)
-                    thread_safe_print(f"Processing {raw_file}")
-                    future = executor.submit(self._process_single_file, json_file_path)
-                    futures.append(future)     
-
-    def _process_single_file(self, json_file_path):
-        processed_name = os.path.splitext(os.path.basename(json_file_path))[0]
-
-        # Check if the processed file already exists
-        processed_file_path = os.path.join(self.processed_dir, f'data_{processed_name}.pt')
-        if os.path.exists(processed_file_path):
-            thread_safe_print(f"Processed file {processed_name} already exists. Skipping...")
-            return torch.load(processed_file_path)
-
-        try:
-            with open(json_file_path, "r") as json_file:
-                graph_data = json.load(json_file)
-
-            if "nodes" not in graph_data or "edges" not in graph_data:
-                raise ValueError("JSON data must contain both 'nodes' and 'edges' keys.")
-
-            aif_data = AIFData(name=processed_name)
-            aif_data.process_json(graph_data)
-
-            # Apply pre-filter
-            if self.pre_filter is not None and not self.pre_filter(aif_data):
-                return None
-
-            # Apply pre-transform
-            if self.pre_transform is not None:
-                aif_data = self.pre_transform(aif_data)
-
-            with save_lock:
-                thread_safe_print(f"Saving {aif_data.name}")
-                torch.save(aif_data, os.path.join(self.processed_dir, f'data_{aif_data.name}.pt'))
-
-        except KeyError:
-            thread_safe_print(f"KeyError in file {processed_name}. Skipping this file.")
-
-        except Exception as e:
-            thread_safe_print(f"Error processing file {processed_name}: {str(e)}. Skipping this file.")
-
     def len(self):
         return len(self.processed_file_names)
-
+    
     def get(self, idx):
-        data = torch.load(os.path.join(self.processed_dir, f'{self.processed_file_names[idx]}'))
+        data = torch.load(os.path.join(self.processed_dir, f'{self.processed_names[idx]}.pt'))
         return data
 
+    # Starts threads for processing of files
+    def process(self):
+        with cf.ThreadPoolExecutor() as executor:
+            futures = []
+            for raw_file in self.raw_file_names:
+                file_path = os.path.join(self.raw_dir, raw_file)
+                thread_safe_print(f"Processing {raw_file}")
+                future = executor.submit(self._process_file, file_path)
+                futures.append(future)
+            
+            cf.wait(futures)
+    
+    # Processes a single file
+    def _process_file(self, file_path):
+        # Get name and file path
+        file_name = os.path.splitext(os.path.basename(file_path))[0]
+        processed_file_path = os.path.join(self.processed_dir, f'data_{file_name}.pt')
+
+        # If processed file already exists then load
+        if file_name in self.processed_file_names:
+            thread_safe_print(f"Processed file {file_name} already exists. Skipping...")
+            return torch.load(processed_file_path)
+        
+        #! Implement AIF format validator
+        # Import json
+        try:
+            with open(json_file, "r") as json_file:
+                json_data = json.load(json_file)
+
+        except Exception as error:
+            thread_safe_print(f"Failed to open file {file_name}: {str(error)}")
+            return
+
+        # Convert json to graph
+        try:
+            graph = nx.DiGraph()
+
+            for node in json_data["nodes"]:
+                graph.add_node(node["nodeID"], type=node["type"], text=node["text"], embedding=None)
+            
+            for edge in json_data["edges"]:
+                graph.add_edge(edge["fromID"], edge["toID"], type=None)
+
+            aif_data = AIFData(graph=graph, name=file_name)
+        
+        except Exception as error:
+            thread_safe_print(f"Failed to create graph for {file_name}: {str(error)}")
+            return
+
+        # Run pre_transform
+        if self.pre_transform is not None:
+            aif_data = self.pre_transform(aif_data)
+
+        # Run pre_filter
+        if self.pre_filter is not None and not self.pre_filter(aif_data):
+             thread_safe_print(f"Pre-filter rejected data in file {file_name}. Skipping this file.")
+
+        # Save with lock
+        try:
+            with self.save_lock:
+                torch.save(aif_data, processed_file_path)
+                thread_safe_print(f"Saved {aif_data.name}")
+        
+        except Exception as error:
+            thread_safe_print(f"Failed to save processed file for {file_name}: {str(error)}")
+            return
+        
 class GraphToPyGData(BaseTransform):
     def __init__(self):
-        super(GraphToPyGData, self).__init__()
+        pass
 
     def __call__(self, data):
         # Get graph data
@@ -153,54 +149,52 @@ class GraphToPyGData(BaseTransform):
 
         return data
 
-class CreateBertEmbeddings(BaseTransform):
-    def __init__(self, tokenizer, model, max_seq_length=128):
-        self.tokenizer = tokenizer
-        self.model = model
-        self.max_seq_length = max_seq_length
+#! Typed to "I" nodes for now
+# Sets the minimum node and edge value filter
+class MinNodesAndEdges(BaseTransform):
+    def __init__(self, min_nodes=3, min_edges=3):
+        self.min_nodes = min_nodes
+        self.min_edges = min_edges
 
     def __call__(self, data):
-        graph = data.graph
+        num_nodes = sum(1 for node, attrs in data.graph.nodes(data=True) if attrs.get("type") == "I")
+        num_edges = data.graph.number_of_edges()
 
-        texts = [graph.nodes[node]["text"] for node in graph.nodes()]
+        return num_nodes >= self.min_nodes and num_edges >= self.min_edges
 
-        tokenized_inputs = self.tokenizer(
-            texts,
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=128
-        )
-
-        attention_mask = tokenized_inputs["attention_mask"]
-
-        with torch.no_grad():
-            outputs = self.model(**tokenized_inputs)
-            embeddings = outputs.last_hidden_state
-
-        masked_embeddings = embeddings * attention_mask.unsqueeze(-1)
-
-        for i, node in enumerate(graph.nodes()):
-            graph.nodes[node]["embedding"] = masked_embeddings[i].tolist()
-
-        thread_safe_print(f'Created BERT embeddings for {data.name}')
-
-        data.graph = graph
-
-        return data
-
-    def __repr__(self):
-        return f"CreateBertEmbeddings()"
-
-class ProcessGraphData(BaseTransform):
-    def __init__(self, link_node_types=None):
-        self.link_node_types = link_node_types or ["YA", "RA", "MA", "TA", "CA"]
+# Removes node types from graph
+class RemoveNodeTypes(BaseTransform):
+    def __init__(self, types_to_remove):
+        self.types_to_remove = types_to_remove
 
     def __call__(self, data):
         graph = data.graph
 
         try:
-            link_nodes = [node for node, attrs in graph.nodes(data=True) if attrs.get("type") in self.link_node_types]
+            nodes_to_remove = [node for node, attr in graph.nodes(data=True) if attr.get("type") in self.types_to_remove]
+    
+            for node in nodes_to_remove:
+                graph.remove_node(node)
+
+            data.graph = graph
+
+            thread_safe_print(f"Successfully removed node types {self.types_to_remove} in {data.name}")
+
+            return data
+            
+        except Exception as error:
+            thread_safe_print(f"Failed to remove node types {self.types_to_remove} in {data.name}: {str(error)}")
+
+# Removes node types from graph maintains edge connections
+class RemoveLinkNodeTypes(BaseTransform):
+    def __init__(self, types_to_remove):
+        self.types_to_remove = types_to_remove
+
+    def __call__(self, data):
+        graph = data.graph
+
+        try:
+            link_nodes = [node for node, attrs in graph.nodes(data=True) if attrs.get("type") in self.types_to_remove]
 
             for node in link_nodes:
                 incoming_edges = list(graph.in_edges(node))
@@ -217,22 +211,51 @@ class ProcessGraphData(BaseTransform):
 
                 graph.remove_node(node)
 
-            locution_nodes = [node for node, attrs in graph.nodes(data=True) if attrs.get("type") == "L"]
-            
-            for node in locution_nodes:
-                graph.remove_node(node)
+            data.graph = graph
 
-        except Exception as e:
-            thread_safe_print(f"An error occurred while processing the graph data: {str(e)}")
+            thread_safe_print(f"Successfully removed link node types {self.types_to_remove} in {data.name}")
 
-        thread_safe_print(f'Successfully processed graph data from {data.name}')
-        
+            return data
+
+        except Exception as error:
+            thread_safe_print(f"Failed to remove link node types {self.types_to_remove} in {data.name}: {str(error)}")
+
+#! Re-factor and add CreateBertEmbeddings
+class CreateBertEmbeddings(BaseTransform):
+    def __init__(self, tokenizer=None, model=None, max_length=128):
+        self.tokenizer = tokenizer
+        self.model = model
+        self.max_length = max_length
+
+    def __call__(self, data):
+        graph = data.graph
+
+        node_text = [graph.nodes[node]["text"] for node in graph.nodes()]
+
+        tokenized_inputs = self.tokenizer(
+            node_text,
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=self.max_length
+        )
+
+        attention_mask = tokenized_inputs["attention_mask"]
+
+        with torch.no_grad():
+            output = self.model(**tokenized_inputs)
+            embeddings = output.last_hidden_state
+
+        masked_embeddings = embeddings * attention_mask.unsqueeze(-1)
+
+        for i, node in enumerate(graph.nodes()):
+            graph.nodes[node]["embedding"] = masked_embeddings[i].tolist()
+
+        thread_safe_print(f"Created BERT embeddings for {data.name}")
+
         data.graph = graph
 
         return data
-    
-    def __repr__(self):
-        return f"RemoveLinkNodes(link_node_types={self.link_node_types})"
 
 class EdgeLabelEncoder(BaseTransform):
     def __init__(self):
@@ -259,10 +282,7 @@ class EdgeLabelEncoder(BaseTransform):
         thread_safe_print(f'Encoded edge labels for {data.name}')
 
         return data
-    
-    def __repr__(self):
-        return f"EdgeLabelEncoder()"
-    
+
 class EdgeLabelDecoder(BaseTransform):
     def __init__(self, label_encoder):
         self.label_encoder = label_encoder
