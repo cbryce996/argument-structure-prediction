@@ -5,9 +5,15 @@ import torch
 import networkx as nx
 import concurrent.futures as cf
 from transformers import BertTokenizer, BertModel
-from threads import thread_safe_print
 from torch_geometric.data import InMemoryDataset, Data
 from torch_geometric.transforms import BaseTransform
+
+print_lock = threading.Lock()
+save_lock = threading.Lock()
+
+def thread_safe_print(message):
+    with print_lock:
+        print(message)
 
 class AIFData(Data):
     def __init__(self, x=None, y=None, graph=None, name=None):
@@ -21,26 +27,14 @@ class AIFDataset(InMemoryDataset):
         self.encoder = EdgeLabelEncoder()
         self.decoder = EdgeLabelDecoder(label_encoder=self.encoder)
         self.save_lock = threading.Lock()
-
-    @property
-    def raw_dir(self) -> str:
-        return os.path.join(self.root, "raw")
     
     @property
-    def raw_file_names(self) -> list[str]:
+    def raw_file_names(self):
         return os.listdir(self.raw_dir)
     
     @property
-    def processed_dir(self) -> str:
-        return os.path.join(self.root, "processed")
-    
-    @property
-    def processed_file_names(self) -> list[str]:
-        return os.listdir(self.processed_dir)
-    
-    @property
-    def processed_names(self):
-        return [file.replace(".pt", "") for file in os.listdir(self.processed_dir)]
+    def processed_file_names(self):
+        return [f'data_{file_name.replace(".json", "")}.pt' for file_name in self.raw_file_names]
     
     def download(self):
         pass
@@ -49,7 +43,7 @@ class AIFDataset(InMemoryDataset):
         return len(self.processed_file_names)
     
     def get(self, idx):
-        data = torch.load(os.path.join(self.processed_dir, f'{self.processed_names[idx]}.pt'))
+        data = torch.load(os.path.join(self.processed_dir, f'{self.processed_file_names[idx]}'))
         return data
 
     # Starts threads for processing of files
@@ -62,23 +56,24 @@ class AIFDataset(InMemoryDataset):
                 future = executor.submit(self._process_file, file_path)
                 futures.append(future)
             
-            cf.wait(futures)
+            #cf.wait(futures)
     
     # Processes a single file
     def _process_file(self, file_path):
         # Get name and file path
         file_name = os.path.splitext(os.path.basename(file_path))[0]
-        processed_file_path = os.path.join(self.processed_dir, f'data_{file_name}.pt')
+        processed_file_name = f'data_nodeset{file_name[7:]}.pt'  # Adjust the slicing based on your specific file name pattern
+        processed_file_path = os.path.join(self.processed_dir, processed_file_name)
 
         # If processed file already exists then load
-        if file_name in self.processed_file_names:
-            thread_safe_print(f"Processed file {file_name} already exists. Skipping...")
+        if processed_file_name in self.processed_file_names:
+            thread_safe_print(f"Processed file {processed_file_name} already exists. Skipping...")
             return torch.load(processed_file_path)
         
         #! Implement AIF format validator
         # Import json
         try:
-            with open(json_file, "r") as json_file:
+            with open(file_path, "r") as json_file:
                 json_data = json.load(json_file)
 
         except Exception as error:
@@ -111,7 +106,7 @@ class AIFDataset(InMemoryDataset):
 
         # Save with lock
         try:
-            with self.save_lock:
+            with save_lock:
                 torch.save(aif_data, processed_file_path)
                 thread_safe_print(f"Saved {aif_data.name}")
         
@@ -178,12 +173,12 @@ class RemoveNodeTypes(BaseTransform):
 
             data.graph = graph
 
-            thread_safe_print(f"Successfully removed node types {self.types_to_remove} in {data.name}")
+            thread_safe_print(f"Successfully removed node types {self.types_to_remove} from {data.name}")
 
             return data
             
         except Exception as error:
-            thread_safe_print(f"Failed to remove node types {self.types_to_remove} in {data.name}: {str(error)}")
+            thread_safe_print(f"Failed to remove node types {self.types_to_remove} from {data.name}: {str(error)}")
 
 # Removes node types from graph maintains edge connections
 class RemoveLinkNodeTypes(BaseTransform):

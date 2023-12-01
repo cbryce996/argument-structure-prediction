@@ -25,10 +25,10 @@ if __name__ == "__main__":
 
     qt30_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/QT30", pre_transform=transforms, pre_filter=filters)
 
-    #us2016_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/US2016", pre_transform=transforms, pre_filter=filters)
+    us2016_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/US2016", pre_transform=transforms, pre_filter=filters)
 
     # Combine the datasets
-    combined_dataset = ConcatDataset([qt30_dataset])
+    combined_dataset = ConcatDataset([qt30_dataset, us2016_dataset])
 
     train_size = int(0.8 * len(combined_dataset))
     test_size = int(0.1 * len(combined_dataset))
@@ -39,7 +39,7 @@ if __name__ == "__main__":
 
     # Create DataLoader for each set
     train_loader = DataLoader(train_dataset, batch_size=24, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=24, shuffle=True)  # No need to shuffle the test set
+    test_loader = DataLoader(test_dataset, batch_size=24, shuffle=false)  # No need to shuffle the test set
     val_loader = DataLoader(val_dataset, batch_size=24, shuffle=False)  # No need to shuffle the validation set
 
     # Assuming you have a DataLoader named 'train_loader' for training data
@@ -52,10 +52,6 @@ if __name__ == "__main__":
         model.train()
         total_loss = 0
         total_samples = 0
-
-        for i, data in enumerate(train_loader):
-            if i < 5:  # Print the first 5 batches
-                print(f"Batch {i}: {data}")
 
         for data in train_loader:
             optimizer.zero_grad()
