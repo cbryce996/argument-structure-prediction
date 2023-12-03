@@ -157,28 +157,28 @@ class MinNodesAndEdges(BaseTransform):
 
         return num_nodes >= self.min_nodes and num_edges >= self.min_edges
 
-# Removes node types from graph
-class RemoveNodeTypes(BaseTransform):
-    def __init__(self, types_to_remove):
-        self.types_to_remove = types_to_remove
+# Keep only specified node types and remove all others
+class KeepSelectedNodeTypes(BaseTransform):
+    def __init__(self, types_to_keep):
+        self.types_to_keep = types_to_keep
 
     def __call__(self, data):
         graph = data.graph
 
         try:
-            nodes_to_remove = [node for node, attr in graph.nodes(data=True) if attr.get("type") in self.types_to_remove]
+            nodes_to_remove = [node for node, attr in graph.nodes(data=True) if attr.get("type") not in self.types_to_keep]
     
             for node in nodes_to_remove:
                 graph.remove_node(node)
 
             data.graph = graph
 
-            thread_safe_print(f"Successfully removed node types {self.types_to_remove} from {data.name}")
+            thread_safe_print(f"Successfully kept only node types {self.types_to_keep} in {data.name}")
 
             return data
             
         except Exception as error:
-            thread_safe_print(f"Failed to remove node types {self.types_to_remove} from {data.name}: {str(error)}")
+            thread_safe_print(f"Failed to keep only node types {self.types_to_keep} in {data.name}: {str(error)}")
 
 # Removes node types from graph maintains edge connections
 class RemoveLinkNodeTypes(BaseTransform):
