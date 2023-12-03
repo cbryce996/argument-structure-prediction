@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, SAGEConv
 
-class GCNClassifier(nn.Module):
+class SAGEClassifier(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
-        super(GCNClassifier, self).__init__()
+        super(SAGEClassifier, self).__init__()
 
         self.conv1 = SAGEConv(input_dim, hidden_dim, aggr='mean')
         self.conv2 = SAGEConv(hidden_dim, hidden_dim, aggr='mean')

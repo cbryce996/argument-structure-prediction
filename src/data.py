@@ -26,7 +26,6 @@ class AIFDataset(InMemoryDataset):
         super(AIFDataset, self).__init__(root, transform, pre_transform, pre_filter)
         self.encoder = EdgeLabelEncoder()
         self.decoder = EdgeLabelDecoder(label_encoder=self.encoder)
-        self.save_lock = threading.Lock()
     
     @property
     def raw_file_names(self):
@@ -34,7 +33,7 @@ class AIFDataset(InMemoryDataset):
     
     @property
     def processed_file_names(self):
-        return [f'data_{file_name.replace(".json", "")}.pt' for file_name in self.raw_file_names]
+        return [file_name for file_name in os.listdir(self.processed_dir) if file_name.startswith("data_")]
     
     def download(self):
         pass
@@ -62,11 +61,11 @@ class AIFDataset(InMemoryDataset):
     def _process_file(self, file_path):
         # Get name and file path
         file_name = os.path.splitext(os.path.basename(file_path))[0]
-        processed_file_name = f'data_nodeset{file_name[7:]}.pt'  # Adjust the slicing based on your specific file name pattern
+        processed_file_name = f'data_{file_name}.pt'  # Adjust the slicing based on your specific file name pattern
         processed_file_path = os.path.join(self.processed_dir, processed_file_name)
 
         # If processed file already exists then load
-        if processed_file_name in self.processed_file_names:
+        if processed_file_name in os.listdir(self.processed_dir):
             thread_safe_print(f"Processed file {processed_file_name} already exists. Skipping...")
             return torch.load(processed_file_path)
         
@@ -103,6 +102,7 @@ class AIFDataset(InMemoryDataset):
         # Run pre_filter
         if self.pre_filter is not None and not self.pre_filter(aif_data):
              thread_safe_print(f"Pre-filter rejected data in file {file_name}. Skipping this file.")
+             return
 
         # Save with lock
         try:
