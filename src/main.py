@@ -4,16 +4,14 @@ import torch.optim as optim
 from transformers import BertTokenizer, BertModel
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import Compose
-from torch.utils.data import random_split, ConcatDataset
+from torch.utils.data import random_split
 from data import AIFDataset, KeepSelectedNodeTypes, RemoveLinkNodeTypes, CreateBertEmbeddings, EdgeLabelEncoder, GraphToPyGData, EdgeLabelDecoder, MinNodesAndEdges
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from gnn_sage import SAGEClassifier
 from gnn_gcn import GCNClassifier
-from gnn_gat import GATClassifier
-import networkx as nx
+from gnn_sage import SAGEClassifier
 import time
 
-if __name__ == "__main__":  
+if __name__ == "__main__":
     start_time = time.time()
 
     tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
@@ -22,30 +20,38 @@ if __name__ == "__main__":
     encoder = EdgeLabelEncoder()
     decoder = EdgeLabelDecoder(label_encoder=encoder)
 
-    transforms = Compose([KeepSelectedNodeTypes(types_to_keep=["I", "YA", "RA", "TA"]), RemoveLinkNodeTypes(types_to_remove=["YA", "RA", "TA"]), EdgeLabelEncoder(), CreateBertEmbeddings(tokenizer, model, 128), GraphToPyGData()])
+    transforms = Compose([
+        KeepSelectedNodeTypes(types_to_keep=["I", "RA", "MA"]),
+        RemoveLinkNodeTypes(types_to_remove=["RA", "MA"]),
+        EdgeLabelEncoder(),
+        CreateBertEmbeddings(tokenizer, model, 128),
+        GraphToPyGData()
+    ])
     filters = Compose([MinNodesAndEdges()])
 
     qt30_dataset = AIFDataset(root="/home/cameron/Dropbox/Uni/2024/CMP400/demo/data/QT30", pre_transform=transforms, pre_filter=filters)
 
     train_size = int(0.8 * len(qt30_dataset))
-    test_size = int(0.1 * len(qt30_dataset))
-    val_size = len(qt30_dataset) - train_size - test_size
+    val_size = int(0.1 * len(qt30_dataset))
+    test_size = len(qt30_dataset) - train_size - val_size
 
     # Use random_split to create the datasets
-    train_dataset, test_dataset, val_dataset = random_split(qt30_dataset, [train_size, test_size, val_size])
+    train_dataset, val_dataset, test_dataset = random_split(qt30_dataset, [train_size, val_size, test_size])
 
-    # Create DataLoader for each set
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)  # No need to shuffle the test set
-    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False)  # No need to shuffle the validation set
+    valid_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
-    # Assuming you have a DataLoader named 'train_loader' for training data
-    model = GATClassifier(input_dim=128*768, hidden_dim=256, output_dim=3)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    model = GCNClassifier(input_dim=128*768, hidden_dim=128, output_dim=2, num_fc_layers=2)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.01, weight_decay=0.01)
     criterion = nn.CrossEntropyLoss()
 
-    # Assuming you have a DataLoader named 'test_loader' for testing data
-    for epoch in range(40):
+    patience = 2  # Number of epochs to wait for improvement
+    early_stop_counter = 0
+    best_valid_loss = float('inf')  # Initialize with a large value
+
+    for epoch in range(20):
+        # Training
         model.train()
         total_loss = 0
         total_samples = 0
@@ -61,9 +67,32 @@ if __name__ == "__main__":
             total_samples += len(data.y)
 
         average_loss = total_loss / len(train_loader.dataset)
-        print(f'Epoch {epoch + 1}/{40}, Loss: {average_loss:.4f}')
+        print(f'Epoch {epoch + 1}/{20}, Training Loss: {average_loss:.4f}')
 
-    # Evaluation
+        # Validation
+        model.eval()
+        total_valid_loss = 0
+
+        with torch.no_grad():
+            for data in valid_loader:
+                output = model(data)
+                loss = criterion(output, data.y)
+                total_valid_loss += loss.item()
+
+        average_valid_loss = total_valid_loss / len(valid_loader.dataset)
+        print(f'Epoch {epoch + 1}/{20}, Validation Loss: {average_valid_loss:.4f}')
+
+        if average_valid_loss < best_valid_loss:
+            best_valid_loss = average_valid_loss
+            early_stop_counter = 0  # Reset the counter if there's improvement
+        else:
+            early_stop_counter += 1
+
+        if early_stop_counter >= patience:
+            print(f'Early stopping after {epoch + 1} epochs. No improvement in validation loss.')
+            break
+
+    # Test
     model.eval()
     all_labels = []
     all_preds = []

@@ -147,15 +147,29 @@ class GraphToPyGData(BaseTransform):
 #! Typed to "I" nodes for now
 # Sets the minimum node and edge value filter
 class MinNodesAndEdges(BaseTransform):
-    def __init__(self, min_nodes=3, min_edges=3):
+    def __init__(self, min_nodes=3, min_edges=3, min_ma_edges=3, min_ra_edges=3):
         self.min_nodes = min_nodes
         self.min_edges = min_edges
+        self.min_ma_edges = min_ma_edges
+        self.min_ra_edges = min_ra_edges
 
     def __call__(self, data):
-        num_nodes = sum(1 for node, attrs in data.graph.nodes(data=True) if attrs.get("type") == "I")
+        num_i_nodes = sum(1 for node, attrs in data.graph.nodes(data=True) if attrs.get("type") == "I")
+        num_ma_edges = sum(1 for _, _, attrs in data.graph.edges(data=True) if attrs.get("type") == "MA")
+        num_ra_edges = sum(1 for _, _, attrs in data.graph.edges(data=True) if attrs.get("type") == "RA")
         num_edges = data.graph.number_of_edges()
 
-        return num_nodes >= self.min_nodes and num_edges >= self.min_edges
+        if getattr(data, 'num_unique_labels', 0) > 2:
+            thread_safe_print(f"Rejected data {data.name} due to more than 2 unique edge labels.")
+            return False
+
+        return (
+            num_i_nodes >= self.min_nodes
+            and num_edges >= self.min_edges
+            and num_ma_edges >= self.min_ma_edges
+            and num_ra_edges >= self.min_ra_edges
+        )
+
 
 # Keep only specified node types and remove all others
 class KeepSelectedNodeTypes(BaseTransform):
@@ -215,7 +229,6 @@ class RemoveLinkNodeTypes(BaseTransform):
         except Exception as error:
             thread_safe_print(f"Failed to remove link node types {self.types_to_remove} in {data.name}: {str(error)}")
 
-#! Re-factor and add CreateBertEmbeddings
 class CreateBertEmbeddings(BaseTransform):
     def __init__(self, tokenizer=None, model=None, max_length=128):
         self.tokenizer = tokenizer
@@ -261,6 +274,9 @@ class EdgeLabelEncoder(BaseTransform):
     def __call__(self, data):
         graph = data.graph
 
+        unique_labels_before = set([graph.edges[src, dst].get("type") for src, dst in graph.edges()])
+        print(f"Unique edge labels before encoding: {unique_labels_before}")
+
         unique_labels = set([graph.edges[src, dst].get("type") for src, dst in graph.edges()])
         
         for label in unique_labels:
@@ -273,6 +289,7 @@ class EdgeLabelEncoder(BaseTransform):
         label_index = torch.tensor(label_index, dtype=torch.long)
 
         data.edge_labels = label_index
+        data.num_unique_labels = len(unique_labels)
 
         thread_safe_print(f'Encoded edge labels for {data.name}')
 

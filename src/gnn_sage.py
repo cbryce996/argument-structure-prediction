@@ -24,6 +24,16 @@ class SAGEClassifier(nn.Module):
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
 
+        # Apply the second GCN layer
+        x = self.conv2(x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, training=self.training)
+
+        # Apply the second GCN layer
+        x = self.conv2(x, edge_index)
+        x = F.relu(x)
+        x = F.dropout(x, training=self.training)
+
         # Edge representation by concatenating or summing node embeddings
         edge_x = torch.cat([x[edge_index[0]],x[edge_index[1]]], dim=-1)
 
