@@ -1,11 +1,12 @@
 from gensim.models import Doc2Vec
 from gensim.models.doc2vec import TaggedDocument
+from nltk.tokenize import word_tokenize
 
 class Doc2VecEmbedding:
-    def __init__(self, model_path='path/to/doc2vec_model.bin'):
-        self.model = Doc2Vec.load(model_path)
+    def __init__(self, model_name='doc2vec-wiki-english'):
+        self.model = Doc2Vec.load(model_name)
 
     def embed_text(self, text):
-        tagged_data = [TaggedDocument(words=text.split(), tags=[0])]
-        embeddings = self.model.infer_vector(tagged_data[0].words)
-        return embeddings
+        tokens = word_tokenize(text.lower())
+        doc = TaggedDocument(words=tokens, tags=[0])
+        return self.model.infer_vector(doc.words)

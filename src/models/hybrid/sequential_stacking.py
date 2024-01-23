@@ -1,13 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ..single.gcn import GCNModel
-from ..single.gat import GATModel
-from ..single.gin import GINModel
+from models import GCNModel, GATModel, GINModel
 
-class SequentialStacking(nn.Modulee):
+class SequentialStackingModel(nn.Modulee):
     def __init__(self, num_features, hidden_size):
-        super(SequentialStacking, self).__init__()
+        super(SequentialStackingModel, self).__init__()
         self.gcn = GCNModel(num_features, hidden_size)
         self.gat = GATModel(num_features, hidden_size)
         self.gin = GINModel(num_features, hidden_size)
