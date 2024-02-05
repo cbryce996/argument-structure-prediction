@@ -5,8 +5,7 @@ import concurrent.futures as cf
 import torch
 import networkx as nx
 from torch_geometric.data import InMemoryDataset, Data
-from transformers import BertTokenizer, BertModel
-from transforms import EdgeLabelEncoder
+from importer.transforms import EdgeLabelEncoder
 from utils import ThreadUtils
 
 thread_utils = ThreadUtils()
@@ -47,7 +46,7 @@ class AIFDataset(InMemoryDataset):
         data = torch.load(os.path.join(self.processed_dir, f'{self.processed_file_names[idx]}'))
         return data
 
-     def process(self):
+    def process(self):
         with cf.ThreadPoolExecutor() as executor:
             futures = []
             for raw_file in self.raw_file_names:

@@ -1,5 +1,7 @@
 from torch_geometric.transforms import BaseTransform
-from utils import thread_safe_print
+from utils import ThreadUtils
+
+thread_utils = ThreadUtils()
 
 class KeepSelectedNodeTypes(BaseTransform):
     def __init__(self, types_to_keep):
@@ -16,9 +18,9 @@ class KeepSelectedNodeTypes(BaseTransform):
 
             data.graph = graph
 
-            thread_safe_print(f"Successfully kept only node types {self.types_to_keep} in {data.name}")
+            thread_utils.thread_safe_print(f"Successfully kept only node types {self.types_to_keep} in {data.name}")
 
             return data
             
         except Exception as error:
-            thread_safe_print(f"Failed to keep only node types {self.types_to_keep} in {data.name}: {str(error)}")
+            thread_utils.thread_safe_print(f"Failed to keep only node types {self.types_to_keep} in {data.name}: {str(error)}")

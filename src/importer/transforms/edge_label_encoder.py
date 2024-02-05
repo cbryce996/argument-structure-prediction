@@ -1,6 +1,8 @@
 import torch
 from torch_geometric.transforms import BaseTransform
-from utils import thread_safe_print
+from utils import ThreadUtils
+
+thread_utils = ThreadUtils()
 
 class EdgeLabelEncoder(BaseTransform):
     def __init__(self):
@@ -12,7 +14,7 @@ class EdgeLabelEncoder(BaseTransform):
         graph = data.graph
 
         unique_labels_before = set([graph.edges[src, dst].get("type") for src, dst in graph.edges()])
-        print(f"Unique edge labels before encoding: {unique_labels_before}")
+        thread_utils.thread_safe_print(f"Unique edge labels before encoding: {unique_labels_before}")
 
         unique_labels = set([graph.edges[src, dst].get("type") for src, dst in graph.edges()])
         
@@ -28,6 +30,6 @@ class EdgeLabelEncoder(BaseTransform):
         data.edge_labels = label_index
         data.num_unique_labels = len(unique_labels)
 
-        thread_safe_print(f'Encoded edge labels for {data.name}')
+        thread_utils.thread_safe_print(f'Encoded edge labels for {data.name}')
 
         return data

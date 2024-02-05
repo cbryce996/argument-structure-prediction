@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from models import GCNModel, GATModel, GINModel
 
-class SequentialStackingModel(nn.Modulee):
+class SequentialStackingModel(nn.Module):
     def __init__(self, num_features, hidden_size):
         super(SequentialStackingModel, self).__init__()
         self.gcn = GCNModel(num_features, hidden_size)

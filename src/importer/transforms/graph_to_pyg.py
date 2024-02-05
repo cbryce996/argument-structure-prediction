@@ -1,6 +1,8 @@
 import torch
 from torch_geometric.transforms import BaseTransform
-from utils import thread_safe_print
+from utils import ThreadUtils
+
+thread_utils = ThreadUtils()
 
 class GraphToPyG(BaseTransform):
     def __init__(self):
@@ -23,6 +25,6 @@ class GraphToPyG(BaseTransform):
 
         data.y = data.edge_labels
 
-        thread_safe_print(f'Converted graph data to PyG data for {data.name}')
+        thread_utils.thread_safe_print(f'Converted graph data to PyG data for {data.name}')
 
         return data
