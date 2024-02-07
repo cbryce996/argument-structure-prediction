@@ -4,16 +4,16 @@ import torch.nn.functional as F
 from torch_geometric.nn import GATConv
 
 class GATModel(nn.Module):
-    def __init__(self, num_features, hidden_size, num_heads):
+    def __init__(self, input_size, hidden_size, num_heads):
         super(GATModel, self).__init__()
         self.conv1 = GATConv(
-            in_channels=num_features,
+            in_channels=input_size,
             out_channels=hidden_size,
             heads=num_heads,
             dropout=0.6
         )
 
-        self.fc = nn.Linear(hidden_size * 2, 1)
+        self.fc = nn.Linear(hidden_size * 2 * 10, 2)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
@@ -27,6 +27,6 @@ class GATModel(nn.Module):
         edge_representation = torch.cat([x[edge_index[0]], x[edge_index[1]]], dim=1)
 
         # Fully connected layer for link prediction
-        edge_scores = self.fc(edge_representation).squeeze()
+        edge_scores = self.fc(edge_representation)
 
         return edge_scores

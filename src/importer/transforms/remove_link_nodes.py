@@ -14,23 +14,25 @@ class RemoveLinkNodeTypes(BaseTransform):
             link_nodes = [node for node, attrs in graph.nodes(data=True) if attrs.get("type") in self.types_to_remove]
 
             for node in link_nodes:
-                incoming_edges = list(graph.in_edges(node))
-                outgoing_edges = list(graph.out_edges(node))
+                edges_to_add = []
 
-                for in_edge in incoming_edges:
-                    for out_edge in outgoing_edges:
-                        source_i, _ = in_edge
-                        _, target_i = out_edge
+                # Collect all edges connected to the link node
+                for neighbor in graph.neighbors(node):
+                    for successor in graph.neighbors(node):
+                        if neighbor != successor and not graph.has_edge(neighbor, successor):
+                            # Save the edge to add back later
+                            edges_to_add.append((neighbor, successor, graph.nodes[node]["type"]))
 
-                        link_type = graph.nodes[node]["type"]
-
-                        graph.add_edge(source_i, target_i, type=link_type)
-
+                # Remove the link node from the graph
                 graph.remove_node(node)
+
+                # Add back the collected edges
+                for source, target, link_type in edges_to_add:
+                    graph.add_edge(source, target, type=link_type)
 
             data.graph = graph
 
-            thread_utils.thread_utilsthread_safe_print(f"Successfully removed link node types {self.types_to_remove} in {data.name}")
+            thread_utils.thread_safe_print(f"Successfully removed link node types {self.types_to_remove} in {data.name}")
 
             return data
 

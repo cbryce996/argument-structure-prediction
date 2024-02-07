@@ -68,7 +68,8 @@ class AIFDataset(InMemoryDataset):
             with open(file_path, "r") as json_file:
                 json_data = json.load(json_file)
 
-            graph = nx.DiGraph()
+            # Create an undirected graph
+            graph = nx.Graph()
 
             for node in json_data["nodes"]:
                 graph.add_node(node["nodeID"], type=node["type"], text=node["text"], embedding=None)

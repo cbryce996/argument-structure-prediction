@@ -4,11 +4,11 @@ import torch.nn.functional as F
 from models import GCNModel, GATModel, GINModel
 
 class SequentialStackingModel(nn.Module):
-    def __init__(self, num_features, hidden_size):
+    def __init__(self, input_size, hidden_size):
         super(SequentialStackingModel, self).__init__()
-        self.gcn = GCNModel(num_features, hidden_size)
-        self.gat = GATModel(num_features, hidden_size)
-        self.gin = GINModel(num_features, hidden_size)
+        self.gcn = GCNModel(input_size, hidden_size)
+        self.gat = GATModel(input_size, hidden_size, num_heads=1)
+        self.gin = GINModel(input_size, hidden_size)
         self.fc = nn.Linear(hidden_size * 2, 1)
 
     def forward(self, data):
@@ -33,6 +33,6 @@ class SequentialStackingModel(nn.Module):
         edge_representation = torch.cat([x[edge_index[0]], x[edge_index[1]]], dim=1)
 
         # Fully connected layer for link prediction
-        edge_scores = self.fc(edge_representation).squeeze()
+        edge_scores = self.fc(edge_representation)
 
         return edge_scores

@@ -29,14 +29,7 @@ class EmbedNodeText(BaseTransform):
             else:
                 raise ValueError(f"Unsupported embedding method: {self.embedding_method}")
 
-            raw_embedding = embedding_model.embed_text(text)
-
-            if len(raw_embedding) < self.max_embedding_length:
-                padded_embedding = np.pad(raw_embedding, ((0, self.max_embedding_length - len(raw_embedding)), (0, 0)))
-                node_embeddings.append(padded_embedding)
-            else:
-                truncated_embedding = raw_embedding[:self.max_embedding_length]
-                node_embeddings.append(truncated_embedding)
+            node_embeddings.append(embedding_model.embed_text(text))
         
         for i, node in enumerate(graph.nodes()):
             graph.nodes[node]["embedding"] = node_embeddings[i]
