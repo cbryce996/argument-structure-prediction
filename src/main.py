@@ -11,6 +11,7 @@ import torch.nn as nn
 from torch.utils.data import random_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.model_selection import train_test_split
+from torch.optim.lr_scheduler import StepLR
 import matplotlib.pyplot as plt
 import networkx as nx
 import os
@@ -38,6 +39,20 @@ def visualize_graph(data, output_dir):
     plt.savefig(os.path.join(output_dir, f'{data.name}_graph.png'))  # Save the plot
     plt.close()
 
+def visualize_training_losses(train_losses, valid_losses, output_dir):
+    plt.figure(figsize=(10, 6))
+    epochs = range(1, len(train_losses) + 1)
+    plt.plot(epochs, train_losses, label='Training Loss', marker='o', linestyle='-')
+    plt.plot(epochs, valid_losses, label='Validation Loss', marker='o', linestyle='-')
+    plt.title('Training and Validation Losses')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'training_validation_losses.png'))
+    plt.close()
+
 # Define transforms
 transforms = Compose([
     KeepSelectedNodeTypes(types_to_keep=["I", "RA", "MA"]),
@@ -54,39 +69,43 @@ filters = Compose([MinNodesAndEdges(), MinSparsityAndConnectivity()])
 # Construct the PyTorch Geometric Dataset
 qt30_dataset = AIFDataset(root="../data/qt30", pre_transform=transforms, pre_filter=filters)
 
-for data in qt30_dataset:
-    visualize_graph(data, '../results/plots/graphs')
+#for data in qt30_dataset:
+#    visualize_graph(data, '../results/plots/graphs')
 
 # Split the dataset
 train_size = int(0.6 * len(qt30_dataset))
-val_size = int(0.3 * len(qt30_dataset))
+val_size = int(0.2 * len(qt30_dataset))
 test_size = len(qt30_dataset) - train_size - val_size
 
 train_dataset, val_dataset, test_dataset = random_split(qt30_dataset, [train_size, val_size, test_size])
 
 # Create data loaders
-train_loader = DataLoader(train_dataset, batch_size=5, shuffle=True)
-valid_loader = DataLoader(val_dataset, batch_size=5, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=5, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=50, shuffle=True)
+valid_loader = DataLoader(val_dataset, batch_size=50, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=50, shuffle=False)
 
 # Initialize model, optimizer, and criterion
-model = GCNModel(input_size=3072, hidden_size=256)
-optimizer = torch.optim.AdamW(model.parameters(), lr=0.01, weight_decay=0.01)
+model = GCNModel(input_size=768, hidden_size=5048)
+optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.9)
 criterion = nn.CrossEntropyLoss()
 
-patience = 20
+patience = 5
 early_stop_counter = 0
-best_valid_loss = float('inf') 
+best_valid_loss = float('inf')
+
+train_losses = []
+valid_losses = []
 
 # Training loop
 start_time = time.time()
-for epoch in range(200):
+epochs = 500
+for epoch in range(epochs):
     # Training
     model.train()
     total_loss = 0
     total_samples = 0
 
-    for data in train_loader:
+    for batch_idx, data in enumerate(train_loader):
         optimizer.zero_grad()
         output = model(data)
         loss = criterion(output, data.y)
@@ -97,7 +116,7 @@ for epoch in range(200):
         total_samples += len(data.y)
 
     average_loss = total_loss / len(train_loader.dataset)
-    print(f'Epoch {epoch + 1}/{20}, Training Loss: {average_loss:.4f}')
+    train_losses.append(average_loss)
 
     # Validation
     model.eval()
@@ -110,17 +129,11 @@ for epoch in range(200):
             total_valid_loss += loss.item()
 
     average_valid_loss = total_valid_loss / len(valid_loader.dataset)
-    print(f'Epoch {epoch + 1}/{20}, Validation Loss: {average_valid_loss:.4f}')
+    valid_losses.append(average_valid_loss)
 
-    if average_valid_loss < best_valid_loss:
-        best_valid_loss = average_valid_loss
-        early_stop_counter = 0  # Reset the counter if there's improvement
-    else:
-        early_stop_counter += 1
+    print(f'Epoch {epoch + 1}/{epochs}, Training Loss: {average_loss:.4f}, Validation Loss: {average_valid_loss:.4f}')
 
-    if early_stop_counter >= patience:
-        print(f'Early stopping after {epoch + 1} epochs. No improvement in validation loss.')
-        break
+visualize_training_losses(train_losses, valid_losses, '../results/plots')
 
 # Test
 model.eval()
@@ -130,13 +143,13 @@ all_preds = []
 with torch.no_grad():
     for data in test_loader:
         output = model(data)
-        _, predicted = torch.max(output, 1)
+        predicted = torch.argmax(output, 1)
         all_labels.extend(data.y.cpu().numpy())
         all_preds.extend(predicted.cpu().numpy())
 
 # Calculate and print various metrics
 accuracy = accuracy_score(all_labels, all_preds)
-precision = precision_score(all_labels, all_preds, average='weighted', zero_division=True)
+precision = precision_score(all_labels, all_preds, average='weighted')
 recall = recall_score(all_labels, all_preds, average='weighted')
 f1 = f1_score(all_labels, all_preds, average='weighted')
 

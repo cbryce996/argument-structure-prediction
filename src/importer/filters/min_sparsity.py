@@ -11,11 +11,9 @@ class MinSparsityAndConnectivity(BaseTransform):
     def __call__(self, data):
         graph = data.graph
 
-        # Assess connectivity
         connectivity_condition = self.is_connected(graph)
         thread_utils.thread_safe_print(f"Connectivity Condition: {connectivity_condition}")
 
-        # Assess sparsity
         sparsity_condition = self.calculate_sparsity(graph) > self.sparsity_threshold
         thread_utils.thread_safe_print(f"Sparsity Condition: {sparsity_condition}")
 
@@ -29,7 +27,6 @@ class MinSparsityAndConnectivity(BaseTransform):
         return False
 
     def is_connected(self, graph):
-        # Check if the graph is connected
         return nx.is_connected(graph)
 
     def calculate_sparsity(self, graph):
