@@ -2,8 +2,8 @@ import time
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import Compose
 from importer import AIFDataset
-from importer.transforms import KeepSelectedNodeTypes, RemoveLinkNodeTypes, EdgeLabelEncoder, EmbedNodeText, GraphToPyG, KeepLargestConnectedComponent
-from importer.filters import MinNodesAndEdges, MinSparsityAndConnectivity
+from importer.transforms import KeepSelectedNodeTypes, RemoveLinkNodeTypes, EdgeLabelEncoder, EmbedNodeText, GraphToPyG, KeepLargestConnectedComponent, ExtractAdditionalFeatures
+from importer.filters import MinNumberNodes, MinSparsityAndConnectivity
 from embeddings import Word2VecEmbedding, Doc2VecEmbedding, BagOfWordsEmbedding, BERTEmbedding
 from models import GCNModel, GATModel, SequentialStackingModel
 import torch
@@ -57,35 +57,38 @@ def visualize_training_losses(train_losses, valid_losses, output_dir):
 transforms = Compose([
     KeepSelectedNodeTypes(types_to_keep=["I", "RA", "MA"]),
     RemoveLinkNodeTypes(types_to_remove=["RA", "MA"]),
-    EmbedNodeText(embedding_method='bert-generic'),
-    KeepLargestConnectedComponent(),
-    EdgeLabelEncoder(),
-    GraphToPyG()
+    EmbedNodeText(),
+    ExtractAdditionalFeatures(),
+    KeepLargestConnectedComponent()
 ])
 
 # Define filters
-filters = Compose([MinNodesAndEdges(), MinSparsityAndConnectivity()])
+filters = Compose([MinNumberNodes(), MinSparsityAndConnectivity()])
 
 # Construct the PyTorch Geometric Dataset
-qt30_dataset = AIFDataset(root="../data/qt30", pre_transform=transforms, pre_filter=filters)
+aif_dataset = AIFDataset(root="../data", pre_transform=transforms, pre_filter=filters)
 
-#for data in qt30_dataset:
-#    visualize_graph(data, '../results/plots/graphs')
+count = 0
+for data in aif_dataset:
+    visualize_graph(data, '../results/plots/graphs')
+    count += 1
+    if count >= 10:
+        break
 
 # Split the dataset
-train_size = int(0.6 * len(qt30_dataset))
-val_size = int(0.2 * len(qt30_dataset))
-test_size = len(qt30_dataset) - train_size - val_size
+train_size = int(0.6 * len(aif_dataset))
+val_size = int(0.2 * len(aif_dataset))
+test_size = len(aif_dataset) - train_size - val_size
 
-train_dataset, val_dataset, test_dataset = random_split(qt30_dataset, [train_size, val_size, test_size])
+train_dataset, val_dataset, test_dataset = random_split(aif_dataset, [train_size, val_size, test_size])
 
 # Create data loaders
-train_loader = DataLoader(train_dataset, batch_size=50, shuffle=True)
-valid_loader = DataLoader(val_dataset, batch_size=50, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=50, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=75, shuffle=True)
+valid_loader = DataLoader(val_dataset, batch_size=75, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=75, shuffle=False)
 
 # Initialize model, optimizer, and criterion
-model = GCNModel(input_size=768, hidden_size=5048)
+model = GCNModel(input_size=770, hidden_size=128)
 optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.9)
 criterion = nn.CrossEntropyLoss()
 
@@ -98,7 +101,7 @@ valid_losses = []
 
 # Training loop
 start_time = time.time()
-epochs = 500
+epochs = 100
 for epoch in range(epochs):
     # Training
     model.train()

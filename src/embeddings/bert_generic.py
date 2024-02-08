@@ -1,7 +1,7 @@
 from transformers import AutoTokenizer, AutoModel
 
 class BERTEmbedding:
-    def __init__(self, model_name='bert-base-uncased'):
+    def __init__(self, model_name='distilbert-base-uncased'):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name)
 

@@ -4,3 +4,4 @@ from .keep_selected_nodes import KeepSelectedNodeTypes
 from .remove_link_nodes import RemoveLinkNodeTypes
 from .embed_node_text import EmbedNodeText
 from .largest_connected_graph import KeepLargestConnectedComponent
+from .extract_additional_features import ExtractAdditionalFeatures

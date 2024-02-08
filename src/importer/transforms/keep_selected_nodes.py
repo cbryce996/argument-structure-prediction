@@ -1,3 +1,4 @@
+import networkx as nx
 from torch_geometric.transforms import BaseTransform
 from utils import ThreadUtils
 
@@ -11,10 +12,22 @@ class KeepSelectedNodeTypes(BaseTransform):
         graph = data.graph
 
         try:
-            nodes_to_remove = [node for node, attr in graph.nodes(data=True) if attr.get("type") not in self.types_to_keep]
-    
+            # Filter nodes based on the types to keep
+            nodes_to_remove = []
+            for node, attr in graph.nodes(data=True):
+                if "type" not in attr or attr["type"] not in self.types_to_keep:
+                    nodes_to_remove.append(node)
+
+            # Remove nodes that are not of the specified types
             for node in nodes_to_remove:
                 graph.remove_node(node)
+
+            # Remove orphaned edges
+            #graph.remove_edges_from(graph.selfloop_edges())
+
+            # Reindex nodes to ensure consecutive node indices
+            mapping = {old_id: new_id for new_id, old_id in enumerate(graph.nodes())}
+            graph = nx.relabel_nodes(graph, mapping)
 
             data.graph = graph
 

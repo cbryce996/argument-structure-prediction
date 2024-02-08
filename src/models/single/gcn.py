@@ -25,6 +25,4 @@ class GCNModel(nn.Module):
 
         edge_scores = self.fc1(edge_representation)
 
-        edge_probs = F.softmax(edge_scores, dim=1)
-
-        return edge_probs
+        return edge_scores

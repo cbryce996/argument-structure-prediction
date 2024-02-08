@@ -1,2 +1,2 @@
-from .min_size import MinNodesAndEdges
+from .min_size import MinNumberNodes
 from .min_sparsity import MinSparsityAndConnectivity
