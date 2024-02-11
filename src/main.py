@@ -1,3 +1,4 @@
+from collections import Counter
 import time
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import Compose
@@ -11,7 +12,7 @@ import torch.nn as nn
 from torch.utils.data import random_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.model_selection import train_test_split
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import CyclicLR
 import matplotlib.pyplot as plt
 import networkx as nx
 import os
@@ -55,44 +56,46 @@ def visualize_training_losses(train_losses, valid_losses, output_dir):
 
 # Define transforms
 transforms = Compose([
-    KeepSelectedNodeTypes(types_to_keep=["I", "RA", "MA"]),
-    RemoveLinkNodeTypes(types_to_remove=["RA", "MA"]),
+    KeepSelectedNodeTypes(),
+    RemoveLinkNodeTypes(),
     EmbedNodeText(),
-    ExtractAdditionalFeatures(),
-    KeepLargestConnectedComponent()
+    ExtractAdditionalFeatures()
 ])
 
-# Define filters
 filters = Compose([MinNumberNodes(), MinSparsityAndConnectivity()])
 
-# Construct the PyTorch Geometric Dataset
 aif_dataset = AIFDataset(root="../data", pre_transform=transforms, pre_filter=filters)
+for i in range(4):
+    visualize_graph(aif_dataset[i], f"../results/plots/graphs")
 
-count = 0
-for data in aif_dataset:
-    visualize_graph(data, '../results/plots/graphs')
-    count += 1
-    if count >= 10:
-        break
-
-# Split the dataset
-train_size = int(0.6 * len(aif_dataset))
+train_size = int(0.7 * len(aif_dataset))
 val_size = int(0.2 * len(aif_dataset))
 test_size = len(aif_dataset) - train_size - val_size
 
 train_dataset, val_dataset, test_dataset = random_split(aif_dataset, [train_size, val_size, test_size])
 
-# Create data loaders
-train_loader = DataLoader(train_dataset, batch_size=75, shuffle=True)
-valid_loader = DataLoader(val_dataset, batch_size=75, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=75, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+valid_loader = DataLoader(val_dataset, batch_size=4, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False)
 
-# Initialize model, optimizer, and criterion
-model = GCNModel(input_size=770, hidden_size=128)
-optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.9)
-criterion = nn.CrossEntropyLoss()
+class_distribution = Counter([label for data in train_dataset for label in data.y.numpy()])
+total_samples = sum(class_distribution.values())
+class_weights = {label: total_samples / count for label, count in class_distribution.items()}
 
-patience = 5
+weights = torch.tensor([class_weights[i] for i in range(len(class_distribution))])
+
+min_lr = 0.00000001
+max_lr = 0.001
+step_size_up = int(len(train_loader) * 2)
+
+model = GCNModel(input_size=770, hidden_size=1024)
+optimizer = torch.optim.SGD(model.parameters(), lr=min_lr, momentum=0.5)
+criterion = nn.CrossEntropyLoss(weight=weights)
+
+clr_scheduler = CyclicLR(optimizer, base_lr=min_lr, max_lr=max_lr, step_size_up=step_size_up, mode='triangular'
+)
+
+patience = 100
 early_stop_counter = 0
 best_valid_loss = float('inf')
 
@@ -101,7 +104,7 @@ valid_losses = []
 
 # Training loop
 start_time = time.time()
-epochs = 100
+epochs = 20000
 for epoch in range(epochs):
     # Training
     model.train()
@@ -136,6 +139,18 @@ for epoch in range(epochs):
 
     print(f'Epoch {epoch + 1}/{epochs}, Training Loss: {average_loss:.4f}, Validation Loss: {average_valid_loss:.4f}')
 
+    clr_scheduler.step()
+
+    if average_valid_loss < best_valid_loss:
+        best_valid_loss = average_valid_loss
+        early_stop_counter = 0  # Reset the counter if there's improvement
+    else:
+        early_stop_counter += 1
+
+    if early_stop_counter >= patience:
+        print(f'Early stopping after {epoch + 1} epochs. No improvement in validation loss.')
+        break
+
 visualize_training_losses(train_losses, valid_losses, '../results/plots')
 
 # Test
@@ -148,11 +163,12 @@ with torch.no_grad():
         output = model(data)
         predicted = torch.argmax(output, 1)
         all_labels.extend(data.y.cpu().numpy())
+
         all_preds.extend(predicted.cpu().numpy())
 
 # Calculate and print various metrics
 accuracy = accuracy_score(all_labels, all_preds)
-precision = precision_score(all_labels, all_preds, average='weighted')
+precision = precision_score(all_labels, all_preds, average='weighted', zero_division=True)
 recall = recall_score(all_labels, all_preds, average='weighted')
 f1 = f1_score(all_labels, all_preds, average='weighted')
 

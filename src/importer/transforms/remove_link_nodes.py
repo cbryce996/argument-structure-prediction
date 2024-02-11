@@ -4,7 +4,7 @@ from utils import ThreadUtils
 thread_utils = ThreadUtils()
 
 class RemoveLinkNodeTypes(BaseTransform):
-    def __init__(self, types_to_remove):
+    def __init__(self, types_to_remove=["RA", "MA", "CA"]):
         self.types_to_remove = types_to_remove
 
     def __call__(self, data):

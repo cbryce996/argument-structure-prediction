@@ -5,7 +5,7 @@ from utils import ThreadUtils
 thread_utils = ThreadUtils()
 
 class KeepSelectedNodeTypes(BaseTransform):
-    def __init__(self, types_to_keep):
+    def __init__(self, types_to_keep=["I", "RA", "MA", "CA"]):
         self.types_to_keep = types_to_keep
 
     def __call__(self, data):

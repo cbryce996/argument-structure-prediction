@@ -1,5 +1,6 @@
 import json
 import os
+import string
 import threading
 import concurrent.futures as cf
 import torch
@@ -12,7 +13,7 @@ from utils import ThreadUtils
 thread_utils = ThreadUtils()
 
 print_lock = threading.Lock()
-save_lock = threading.Lock()
+file_lock = threading.Lock()
 
 class AIFData(Data):
     def __init__(self, x=None, y=None, graph=None, name=None, num_nodes=None):
@@ -62,53 +63,60 @@ class AIFDataset(InMemoryDataset):
         processed_file_name = f'data_{file_name}.pt'
         processed_file_path = os.path.join(self.processed_dir, processed_file_name)
 
-        if processed_file_name in os.listdir(self.processed_dir):
-            thread_utils.thread_safe_print(f"Processed file {processed_file_name} already exists. Skipping...")
-            return torch.load(processed_file_path)
-        
+        with file_lock:
+            if processed_file_name in os.listdir(self.processed_dir):
+                thread_utils.thread_safe_print(f"Processed file {processed_file_name} already exists. Skipping...")
+                return torch.load(processed_file_path)
+
         try:
             with open(file_path, "r") as json_file:
                 json_data = json.load(json_file)
 
-            # Create an undirected graph
             graph = nx.Graph()
-
             for node in json_data["nodes"]:
                 graph.add_node(node["nodeID"], type=node["type"], text=node["text"], embedding=None)
-            
             for edge in json_data["edges"]:
                 graph.add_edge(edge["fromID"], edge["toID"], type=None)
 
             aif_data = AIFData(graph=graph, name=file_name)
-        
-        except Exception as error:
-            thread_utils.thread_safe_print(f"Failed to create graph for {file_name}: {str(error)}")
-            return
 
+        except Exception as error:
+            thread_utils.thread_safe_print(f"Failed to create graph {file_name}")
+            return
+        
         if self.pre_transform is not None:
             try:
                 aif_data = self.pre_transform(aif_data)
             except Exception as transform_error:
-                thread_utils.thread_safe_print(f"Failed to apply pre-transform for {file_name}: {str(transform_error)}")
+                thread_utils.thread_safe_print(f"Failed to apply pre-transform for sub-graph {aif_data.name}: {str(transform_error)}")
                 return
+        
+        subgraph_data = []
+
+        # Split the graph into connected components
+        connected_components = list(nx.connected_components(aif_data.graph))
+        for i, component in enumerate(connected_components):
+            subgraph = nx.Graph(aif_data.graph.subgraph(component))
+            subgraph_name = f'{file_name}_component_{string.ascii_lowercase[i]}'
+            component_data = AIFData(graph=subgraph, name=subgraph_name, num_nodes=subgraph.number_of_nodes())
+
+            # Apply transformations
+            component_data = self.edge_label_encoder(component_data)
+            component_data = self.graph_to_pyg(component_data)
+
+            # Filter components
+            if self.pre_filter is not None and not self.pre_filter(component_data):
+                thread_utils.thread_safe_print(f"Pre-filter rejected data in sub-graph {component_data.name}. Skipping this file.")
+                continue
             
-        aif_data.num_nodes = aif_data.graph.number_of_nodes()
+            subgraph_data.append(component_data)
 
-        if self.pre_filter is not None and not self.pre_filter(aif_data):
-            thread_utils.thread_safe_print(f"Pre-filter rejected data in file {file_name}. Skipping this file.")
-            return
-        
-        aif_data = self.edge_label_encoder(aif_data)
-        aif_data = self.graph_to_pyg(aif_data)
-
-        try:
-            with thread_utils.save_lock:
-                torch.save(aif_data, processed_file_path)
-                thread_utils.thread_safe_print(f"Saved {aif_data.name}")
-        
-        except Exception as save_error:
-            thread_utils.thread_safe_print(f"Failed to save processed file for {file_name}: {str(save_error)}")
-            return
+        # Save the filtered components
+        for component_data in subgraph_data:
+            with file_lock:
+                save_path = os.path.join(self.processed_dir, f'data_{component_data.name}.pt')
+                torch.save(component_data, save_path)
+                thread_utils.thread_safe_print(f"Saved {component_data.name}")
         
     def graph_to_pyg(self, data):
         try:
@@ -129,7 +137,6 @@ class AIFDataset(InMemoryDataset):
             sentiment_values = [nodes[node].get('sentiment', 0.0) for node in data.graph.nodes]
             sentiment_tensor = torch.tensor(sentiment_values, dtype=torch.float).unsqueeze(1)
 
-            # Concatenate node embeddings, centrality, and sentiment along the feature dimension
             node_features = torch.cat((node_embeddings_tensor, centrality_tensor, sentiment_tensor), dim=1)
             
             data.edge_index = edge_index
@@ -163,9 +170,6 @@ class AIFDataset(InMemoryDataset):
 
             data.edge_labels = label_index
             data.num_unique_labels = len(unique_labels)
-
-            if self.num_labels > 2:
-                raise AssertionError(f"ASSERTION ERROR: {data.name} {data.edge_labels}")
 
             thread_utils.thread_safe_print(f'Encoded edge labels for {data.name}')
 
