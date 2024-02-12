@@ -97,7 +97,7 @@ criterion = nn.CrossEntropyLoss(weight=weights)
 clr_scheduler = CyclicLR(optimizer, base_lr=min_lr, max_lr=max_lr, step_size_up=step_size_up, mode='triangular'
 )
 
-patience = 10
+patience = 5
 early_stop_counter = 0
 best_valid_loss = float('inf')
 
