@@ -98,16 +98,15 @@ class AIFDataset(InMemoryDataset):
         for i, component in enumerate(connected_components):
             subgraph = nx.Graph(aif_data.graph.subgraph(component))
             subgraph_name = f'{file_name}_component_{string.ascii_lowercase[i]}'
-            component_data = AIFData(graph=subgraph, name=subgraph_name, num_nodes=subgraph.number_of_nodes())
-
-            # Apply transformations
-            component_data = self.edge_label_encoder(component_data)
-            component_data = self.graph_to_pyg(component_data)
+            component_data = AIFData(graph=subgraph, name=subgraph_name, num_nodes=subgraph.number_of_nodes())    
 
             # Filter components
             if self.pre_filter is not None and not self.pre_filter(component_data):
                 thread_utils.thread_safe_print(f"Pre-filter rejected data in sub-graph {component_data.name}. Skipping this file.")
                 continue
+
+            component_data = self.edge_label_encoder(component_data)
+            component_data = self.graph_to_pyg(component_data)
             
             subgraph_data.append(component_data)
 
@@ -142,6 +141,9 @@ class AIFDataset(InMemoryDataset):
             data.edge_index = edge_index
             data.y = data.edge_labels
             data.x = node_features
+
+            assert data.x is not None, f"WARNING: data.x is None for {data.name}"
+            assert data.y is not None, f"WARNING: data.y is None for {data.name}"
 
             thread_utils.thread_safe_print(f'Converted graph data to PyG data for {data.name}')
         

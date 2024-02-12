@@ -2,7 +2,7 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 
 class BERTEmbedding:
-    def __init__(self, model_name='ali2066/distilbert-base-uncased-finetuned-sst-2-english-finetuned-argumentative'):
+    def __init__(self, model_name='bhadresh-savani/distilbert-base-uncased-sentiment-sst2'):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name, output_hidden_states=True)
 

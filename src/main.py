@@ -14,6 +14,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from sklearn.model_selection import train_test_split
 from torch.optim.lr_scheduler import CyclicLR
 import matplotlib.pyplot as plt
+from collections import Counter
 import networkx as nx
 import os
 
@@ -65,6 +66,7 @@ transforms = Compose([
 filters = Compose([MinNumberNodes(), MinSparsityAndConnectivity()])
 
 aif_dataset = AIFDataset(root="../data", pre_transform=transforms, pre_filter=filters)
+
 for i in range(4):
     visualize_graph(aif_dataset[i], f"../results/plots/graphs")
 
@@ -74,9 +76,9 @@ test_size = len(aif_dataset) - train_size - val_size
 
 train_dataset, val_dataset, test_dataset = random_split(aif_dataset, [train_size, val_size, test_size])
 
-train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
-valid_loader = DataLoader(val_dataset, batch_size=4, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True)
+valid_loader = DataLoader(val_dataset, batch_size=2, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False)
 
 class_distribution = Counter([label for data in train_dataset for label in data.y.numpy()])
 total_samples = sum(class_distribution.values())
@@ -95,7 +97,7 @@ criterion = nn.CrossEntropyLoss(weight=weights)
 clr_scheduler = CyclicLR(optimizer, base_lr=min_lr, max_lr=max_lr, step_size_up=step_size_up, mode='triangular'
 )
 
-patience = 100
+patience = 10
 early_stop_counter = 0
 best_valid_loss = float('inf')
 
@@ -143,7 +145,7 @@ for epoch in range(epochs):
 
     if average_valid_loss < best_valid_loss:
         best_valid_loss = average_valid_loss
-        early_stop_counter = 0  # Reset the counter if there's improvement
+        early_stop_counter = 0
     else:
         early_stop_counter += 1
 
