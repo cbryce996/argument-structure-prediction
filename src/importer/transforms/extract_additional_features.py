@@ -16,9 +16,24 @@ class ExtractAdditionalFeatures(BaseTransform):
 
         try:
             degree_centrality = nx.degree_centrality(graph)
-            nx.set_node_attributes(graph, degree_centrality, name="centrality")
+            nx.set_node_attributes(graph, degree_centrality, name="degree_centrality")
+
+            betweenness_centrality = nx.betweenness_centrality(graph)
+            nx.set_node_attributes(
+                graph, betweenness_centrality, name="betweenness_centrality"
+            )
+
+            closeness_centrality = nx.closeness_centrality(graph)
+            nx.set_node_attributes(
+                graph, closeness_centrality, name="closeness_centrality"
+            )
+
+            clustering_coefficient = nx.clustering(graph)
+            nx.set_node_attributes(
+                graph, clustering_coefficient, name="clustering_coefficient"
+            )
         except Exception as e:
-            thread_utils.thread_safe_print(f"Error calculating degree centrality: {e}")
+            thread_utils.thread_safe_print(f"Error calculating graph features: {e}")
 
         try:
             model_name = "distilbert-base-uncased-finetuned-sst-2-english"

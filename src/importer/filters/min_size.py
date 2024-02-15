@@ -6,7 +6,7 @@ thread_utils = ThreadUtils()
 
 
 class MinNumberNodes(BaseTransform):
-    def __init__(self, min_nodes=12):
+    def __init__(self, min_nodes=5):
         self.min_nodes = min_nodes
 
     def __call__(self, data):

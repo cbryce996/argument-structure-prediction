@@ -43,9 +43,9 @@ train_dataset, val_dataset, test_dataset = random_split(
     aif_dataset, [train_size, val_size, test_size]
 )
 
-train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True)
-valid_loader = DataLoader(val_dataset, batch_size=2, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=2, shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
+valid_loader = DataLoader(val_dataset, batch_size=512, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
 
 class_distribution = Counter(
     [label for data in train_dataset for label in data.y.numpy()]
@@ -61,8 +61,8 @@ min_lr = 0.0000000001
 max_lr = 0.01
 step_size_up = int(len(train_loader) * 2)
 
-model = GCNModel(input_size=770, hidden_size=2048)
-optimizer = torch.optim.SGD(model.parameters(), lr=min_lr, momentum=0.5)
+model = GCNModel(input_size=773, hidden_size=4096)
+optimizer = torch.optim.SGD(model.parameters(), lr=min_lr, momentum=0.5, weight_decay=0)
 criterion = nn.CrossEntropyLoss(weight=weights)
 
 clr_scheduler = CyclicLR(

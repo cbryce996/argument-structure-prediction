@@ -153,11 +153,35 @@ class AIFDataset(InMemoryDataset):
                 node_embeddings_tensor.size(0), -1
             )
 
-            centrality_values = [
-                nodes[node].get("centrality", 0.0) for node in data.graph.nodes
+            degree_centrality_values = [
+                nodes[node].get("degree_centrality", 0.0) for node in data.graph.nodes
             ]
-            centrality_tensor = torch.tensor(
-                centrality_values, dtype=torch.float
+            degree_centrality_tensor = torch.tensor(
+                degree_centrality_values, dtype=torch.float
+            ).unsqueeze(1)
+
+            betweenness_centrality_values = [
+                nodes[node].get("betweenness_centrality", 0.0)
+                for node in data.graph.nodes
+            ]
+            betweenness_centrality_tensor = torch.tensor(
+                betweenness_centrality_values, dtype=torch.float
+            ).unsqueeze(1)
+
+            closeness_centrality_values = [
+                nodes[node].get("closeness_centrality", 0.0)
+                for node in data.graph.nodes
+            ]
+            closeness_centrality_tensor = torch.tensor(
+                closeness_centrality_values, dtype=torch.float
+            ).unsqueeze(1)
+
+            clustering_coefficient_values = [
+                nodes[node].get("closeness_centrality", 0.0)
+                for node in data.graph.nodes
+            ]
+            clustering_coefficient_tensor = torch.tensor(
+                clustering_coefficient_values, dtype=torch.float
             ).unsqueeze(1)
 
             sentiment_values = [
@@ -167,16 +191,23 @@ class AIFDataset(InMemoryDataset):
                 sentiment_values, dtype=torch.float
             ).unsqueeze(1)
 
+            # Concatenate node features (node embeddings, centrality values, sentiment scores)
             node_features = torch.cat(
-                (node_embeddings_tensor, centrality_tensor, sentiment_tensor), dim=1
+                (
+                    node_embeddings_tensor,
+                    degree_centrality_tensor,
+                    betweenness_centrality_tensor,
+                    closeness_centrality_tensor,
+                    clustering_coefficient_tensor,
+                    sentiment_tensor,
+                ),
+                dim=1,
             )
 
+            # Assign features and edge index to PyG data object
             data.edge_index = edge_index
             data.y = data.edge_labels
             data.x = node_features
-
-            assert data.x is not None, f"WARNING: data.x is None for {data.name}"
-            assert data.y is not None, f"WARNING: data.y is None for {data.name}"
 
             thread_utils.thread_safe_print(
                 f"Converted graph data to PyG data for {data.name}"
