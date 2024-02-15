@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GATConv
 
+
 class GATModel(nn.Module):
     def __init__(self, input_size, hidden_size, num_heads):
         super(GATModel, self).__init__()
@@ -10,7 +11,7 @@ class GATModel(nn.Module):
             in_channels=input_size,
             out_channels=hidden_size,
             heads=num_heads,
-            dropout=0.6
+            dropout=0.6,
         )
 
         self.fc = nn.Linear(hidden_size * 2 * 10, 2)

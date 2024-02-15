@@ -1,8 +1,11 @@
 import torch
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoModel, AutoTokenizer
+
 
 class BERTEmbedding:
-    def __init__(self, model_name='bhadresh-savani/distilbert-base-uncased-sentiment-sst2'):
+    def __init__(
+        self, model_name="bhadresh-savani/distilbert-base-uncased-sentiment-sst2"
+    ):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name, output_hidden_states=True)
 

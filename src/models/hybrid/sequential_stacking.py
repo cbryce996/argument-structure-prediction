@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models import GCNModel, GATModel, GINModel
+
+from models import GATModel, GCNModel, GINModel
+
 
 class SequentialStackingModel(nn.Module):
     def __init__(self, input_size, hidden_size):
