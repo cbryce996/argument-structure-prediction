@@ -1,4 +1,3 @@
-import networkx as nx
 from torch_geometric.transforms import BaseTransform
 
 from utils import ThreadUtils

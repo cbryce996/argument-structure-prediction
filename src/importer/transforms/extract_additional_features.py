@@ -1,6 +1,4 @@
 import networkx as nx
-import numpy as np
-import torch
 from torch_geometric.transforms import BaseTransform
 from transformers import pipeline
 

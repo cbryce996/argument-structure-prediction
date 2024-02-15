@@ -14,7 +14,7 @@ class IsBalancedClass(BaseTransform):
         labels = nx.get_edge_attributes(data.graph, "type")
         unique_labels = set(label for label in labels.values())
 
-        if len(unique_labels) >= 3:  # Assuming there are 3 classes
+        if len(unique_labels) >= 3:
             thread_utils.thread_safe_print(
                 f"Class balance condition passed for {data.name}"
             )

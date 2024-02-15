@@ -8,7 +8,6 @@ import networkx as nx
 import torch
 from torch_geometric.data import Data, InMemoryDataset
 
-from importer.transforms import EdgeLabelEncoder
 from utils import ThreadUtils
 
 thread_utils = ThreadUtils()
@@ -32,7 +31,6 @@ class AIFDataset(InMemoryDataset):
 
     def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
         super(AIFDataset, self).__init__(root, transform, pre_transform, pre_filter)
-        self.encoder = EdgeLabelEncoder()
 
     @property
     def raw_file_names(self):

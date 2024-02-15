@@ -1,22 +1,24 @@
-import os
 import time
 from collections import Counter
 
 import networkx as nx
 import torch
 import torch.nn as nn
-from sklearn.metrics import (accuracy_score, f1_score, precision_score,
-                             recall_score)
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from torch.optim.lr_scheduler import CyclicLR
 from torch.utils.data import random_split
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import Compose
 
-from importer import AIFDataset
-from importer.filters import IsConnected, MinNumberNodes, MinSparsity
-from importer.transforms import (EmbedNodeText, ExtractAdditionalFeatures,
-                                 KeepSelectedNodeTypes, RemoveLinkNodeTypes)
-from models import GCNModel
+from importer.filters.is_connected import IsConnected
+from importer.filters.min_size import MinNumberNodes
+from importer.filters.min_sparsity import MinSparsity
+from importer.importer import AIFDataset
+from importer.transforms.embed_node_text import EmbedNodeText
+from importer.transforms.extract_additional_features import ExtractAdditionalFeatures
+from importer.transforms.keep_selected_nodes import KeepSelectedNodeTypes
+from importer.transforms.remove_link_nodes import RemoveLinkNodeTypes
+from models.single.gcn import GCNModel
 from utils import PlotUtils as plt
 
 # Define transforms
@@ -163,26 +165,20 @@ all_preds = []
 
 
 def data_to_graph(data, labels):
-    # Extract node features, edge indices, and edge labels from the data object
-    x = data.x  # Node features
-    edge_index = data.edge_index  # Edge indices
-    edge_labels = labels  # Edge labels
+    x = data.x
+    edge_index = data.edge_index
+    edge_labels = labels
 
-    # Create a NetworkX graph
     graph = nx.Graph()
 
-    # Add nodes with features to the graph
     num_nodes = x.size(0)
     for node_idx in range(num_nodes):
-        graph.add_node(
-            node_idx, features=x[node_idx].numpy()
-        )  # Assuming x contains node features
+        graph.add_node(node_idx, features=x[node_idx].numpy())
 
-    # Add edges with labels to the graph
     num_edges = edge_index.size(1)
     for edge_idx in range(num_edges):
         src, dst = edge_index[:, edge_idx]
-        label = edge_labels[edge_idx].item()  # Assuming edge labels are scalar values
+        label = edge_labels[edge_idx].item()
         graph.add_edge(src.item(), dst.item(), type=label)
 
     return graph
@@ -196,22 +192,12 @@ with torch.no_grad():
 
         all_preds.extend(predicted.cpu().numpy())
 
-        graph = data_to_graph(data, data.y)
-        graph_predicted = data_to_graph(data, predicted)
-
-        plt.visualize_graphs(
-            graph1=graph,
-            graph2=graph_predicted,
-            output_dir="../results/plots/evaluation",
-        )
-
 accuracy = accuracy_score(all_labels, all_preds)
 precision = precision_score(
     all_labels, all_preds, average="weighted", zero_division=True
 )
 recall = recall_score(all_labels, all_preds, average="weighted")
 f1 = f1_score(all_labels, all_preds, average="weighted")
-# roc_auc = roc_auc_score(all_labels, all_preds, average='macro')
 
 print(
     f"Test Accuracy: {accuracy * 100:.2f}%, Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}"
