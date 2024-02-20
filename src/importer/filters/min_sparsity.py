@@ -6,7 +6,7 @@ thread_utils = ThreadUtils()
 
 
 class MinSparsity(BaseTransform):
-    def __init__(self, sparsity_threshold=0.3):
+    def __init__(self, sparsity_threshold=0.5):
         self.sparsity_threshold = sparsity_threshold
 
     def __call__(self, data):
